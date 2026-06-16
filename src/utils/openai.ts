@@ -1,5 +1,5 @@
-import { env } from "../config/env.js";
-import { OpenAI } from "openai";
+import { OpenAI } from 'openai';
+import { env, hasOpenAi } from '../config/env.js';
 
 export type OpenAIUsage = {
   promptTokens?: number;
@@ -7,19 +7,19 @@ export type OpenAIUsage = {
   totalTokens?: number;
 };
 
-const DEFAULT_MODEL = env.OPENAI_MODEL || "gpt-4o-mini";
+const DEFAULT_MODEL = env.OPENAI_MODEL;
 
 function buildMessages(prompt: string, contextParts: string[]) {
-  const messages: Array<{ role: "system" | "user"; content: string }> = [];
-  if (contextParts && contextParts.length) {
-    messages.push({ role: "system", content: contextParts.join("\n\n") });
+  const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
+  if (contextParts.length) {
+    messages.push({ role: 'system', content: contextParts.join('\n\n') });
   }
-  messages.push({ role: "user", content: prompt });
+  messages.push({ role: 'user', content: prompt });
   return messages;
 }
 
 function getClient() {
-  if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
+  if (!hasOpenAi) throw new Error('OPENAI_API_KEY is not configured');
   return new OpenAI({ apiKey: env.OPENAI_API_KEY });
 }
 
@@ -31,16 +31,18 @@ export async function openaiGenerate(
   const client = getClient();
   const completion = await client.chat.completions.create({
     model: modelName,
-    messages: buildMessages(prompt, contextParts) as any,
+    messages: buildMessages(prompt, contextParts),
     temperature: 0.7,
   });
-  const text: string = completion?.choices?.[0]?.message?.content ?? "";
+
+  const text = completion.choices[0]?.message?.content ?? '';
   const usage: OpenAIUsage = {
-    promptTokens: (completion as any)?.usage?.prompt_tokens,
-    candidatesTokens: (completion as any)?.usage?.completion_tokens,
-    totalTokens: (completion as any)?.usage?.total_tokens,
+    promptTokens: completion.usage?.prompt_tokens,
+    candidatesTokens: completion.usage?.completion_tokens,
+    totalTokens: completion.usage?.total_tokens,
   };
-  return { text: text || "I could not generate a response at the moment.", usage };
+
+  return { text: text || 'I could not generate a response at the moment.', usage };
 }
 
 export async function openaiStream(
@@ -52,18 +54,19 @@ export async function openaiStream(
   const client = getClient();
   const stream = await client.chat.completions.create({
     model: modelName,
-    messages: buildMessages(prompt, contextParts) as any,
+    messages: buildMessages(prompt, contextParts),
     temperature: 0.7,
     stream: true,
   });
-  let full = "";
-  for await (const chunk of stream as any) {
-    const delta = chunk?.choices?.[0]?.delta?.content || "";
+
+  let full = '';
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content || '';
     if (delta) {
       full += delta;
       onText(delta);
     }
   }
-  const usage: OpenAIUsage = {};
-  return { text: full, usage };
+
+  return { text: full, usage: {} };
 }

@@ -1,38 +1,17 @@
 import { v2 as cloudinary } from 'cloudinary';
-import { env } from '../config/env.js';
+import { cloudinaryConfig, hasCloudinary } from '../config/env.js';
 
-const folder = env.CLOUDINARY_FOLDER || 'curly-fiesta/recipes';
+const folder = cloudinaryConfig.folder || 'bunzimeal/uploads';
 
 export function configureCloudinary() {
-  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
-    throw new Error('Cloudinary environment variables are not fully configured');
+  if (!hasCloudinary) {
+    throw new Error('Cloudinary is not configured. Set CLOUDINARY_URL or individual Cloudinary env vars.');
   }
   cloudinary.config({
-    cloud_name: env.CLOUDINARY_CLOUD_NAME,
-    api_key: env.CLOUDINARY_API_KEY,
-    api_secret: env.CLOUDINARY_API_SECRET,
+    cloud_name: cloudinaryConfig.cloudName,
+    api_key: cloudinaryConfig.apiKey,
+    api_secret: cloudinaryConfig.apiSecret,
     secure: true,
-  });
-}
-
-export async function uploadRecipeImage(buffer: Buffer, filename?: string) {
-  configureCloudinary();
-  const timeoutMs = 25000;
-  return new Promise<{ url: string }>((resolve, reject) => {
-    const to = setTimeout(() => reject(new Error('Image upload timed out')), timeoutMs);
-    const uploadStream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: 'image', public_id: filename?.replace(/\.[^/.]+$/, '') },
-      (error: unknown, result: any) => {
-        clearTimeout(to);
-        if (error || !result) return reject(error || new Error('Cloudinary upload failed'));
-        resolve({ url: result.secure_url });
-      }
-    );
-    uploadStream.on('error', (err: unknown) => {
-      clearTimeout(to);
-      reject(err || new Error('Cloudinary upload stream error'));
-    });
-    uploadStream.end(buffer);
   });
 }
 
@@ -43,26 +22,36 @@ export async function uploadImageBuffer(
   configureCloudinary();
   const timeoutMs = 25000;
   const targetFolder = (opts?.folder || folder).replace(/\/$/, '');
+
   return new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
-    const to = setTimeout(() => reject(new Error('Image upload timed out')), timeoutMs);
+    const timer = setTimeout(() => reject(new Error('Image upload timed out')), timeoutMs);
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: targetFolder,
         resource_type: opts?.resource_type || 'image',
         public_id: opts?.public_id,
       },
-      (error: unknown, result: any) => {
-        clearTimeout(to);
-        if (error || !result) return reject(error || new Error('Cloudinary upload failed'));
+      (error: unknown, result: { secure_url?: string; public_id?: string } | undefined) => {
+        clearTimeout(timer);
+        if (error || !result?.secure_url || !result.public_id) {
+          return reject(error || new Error('Cloudinary upload failed'));
+        }
         resolve({ secure_url: result.secure_url, public_id: result.public_id });
       }
     );
     uploadStream.on('error', (err: unknown) => {
-      clearTimeout(to);
+      clearTimeout(timer);
       reject(err || new Error('Cloudinary upload stream error'));
     });
     uploadStream.end(buffer);
   });
+}
+
+export async function uploadRecipeImage(buffer: Buffer, filename?: string) {
+  const result = await uploadImageBuffer(buffer, {
+    public_id: filename?.replace(/\.[^/.]+$/, ''),
+  });
+  return { url: result.secure_url };
 }
 
 export default uploadImageBuffer;

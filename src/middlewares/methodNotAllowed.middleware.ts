@@ -1,4 +1,6 @@
 import type { Request, Response } from 'express';
+import { jsonError } from '../utils/response.js';
+
 export function methodNotAllowed(_req: Request, res: Response) {
-  return res.status(405).json({ error: 'Method Not Allowed' });
+  return jsonError(res, 405, 'Method Not Allowed', 'HTTP method not allowed for this route');
 }

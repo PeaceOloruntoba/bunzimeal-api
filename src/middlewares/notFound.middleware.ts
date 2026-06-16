@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
+import { notFoundError } from '../utils/response.js';
 
 export function notFound(_req: Request, res: Response) {
-  res.status(404).json({ error: 'Not Found', errorMessage: 'Resource not found' });
+  return notFoundError(res);
 }
