@@ -74,7 +74,7 @@ export async function getHealthLog(req: AuthedRequest, res: Response, next: Next
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     
-    const logId = req.params.id;
+    const logId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const log = await repo.getHealthLog(userId, logId);
     if (!log) return res.status(404).json({ error: 'Not Found', errorMessage: 'Health log not found' });
     
@@ -94,6 +94,8 @@ export async function createHealthLog(req: AuthedRequest, res: Response, next: N
     
     const log = await repo.createHealthLog(userId, {
       ...body,
+      notes: body.notes ?? null,
+      metadata: body.metadata ?? null,
       log_date: logDate
     });
     
@@ -110,10 +112,15 @@ export async function updateHealthLog(req: AuthedRequest, res: Response, next: N
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     
-    const logId = req.params.id;
+    const logId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const body = updateHealthLogSchema.parse(req.body);
     
-    const log = await repo.updateHealthLog(userId, logId, body);
+    const updateData = {
+      ...body,
+      notes: body.notes ?? null,
+      metadata: body.metadata ?? null,
+    };
+    const log = await repo.updateHealthLog(userId, logId, updateData);
     if (!log) return res.status(404).json({ error: 'Not Found', errorMessage: 'Health log not found' });
     
     return res.json({ success: true, message: 'Health log updated', data: { log } });
@@ -127,7 +134,7 @@ export async function deleteHealthLog(req: AuthedRequest, res: Response, next: N
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     
-    const logId = req.params.id;
+    const logId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const log = await repo.getHealthLog(userId, logId);
     if (!log) return res.status(404).json({ error: 'Not Found', errorMessage: 'Health log not found' });
     

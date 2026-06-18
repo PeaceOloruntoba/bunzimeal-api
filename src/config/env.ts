@@ -38,6 +38,7 @@ const EnvSchema = z
     EMAIL_FROM: z.string().optional(),
     FRONTEND_BASE_URL: z.string().url().optional(),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+    UNIRATE_API_KEY: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV !== 'production') return;

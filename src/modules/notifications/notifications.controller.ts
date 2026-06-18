@@ -33,7 +33,7 @@ export async function updatePushToken(req: AuthedRequest, res: Response, next: N
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     
-    const tokenId = req.params.id;
+    const tokenId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const body = updatePushTokenSchema.parse(req.body);
     const token = await repo.updatePushToken(userId, tokenId, body);
     if (!token) return res.status(404).json({ error: 'Not Found', errorMessage: 'Push token not found' });
@@ -49,7 +49,7 @@ export async function deletePushToken(req: AuthedRequest, res: Response, next: N
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     
-    const tokenId = req.params.id;
+    const tokenId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     await repo.deletePushToken(userId, tokenId);
     return res.json({ success: true, message: 'Push token deleted' });
   } catch (e) {

@@ -38,13 +38,13 @@ export async function checkAndUpdateStreak(userId: string, logDate: string) {
       total_check_ins: 1,
       streak_milestone_unlocked: []
     });
-    return streak = await repo.getUserStreak(userId);
+    return await repo.getUserStreak(userId);
   } else {
     let newCurrentStreak = streak.current_streak;
     let newLastCheckInDate = streak.last_check_in_date;
     let newTotalCheckIns = streak.total_check_ins + 1;
     let newLongestStreak = streak.longest_streak;
-    let newMilestones = [...streak.streak_milestone_unlocked];
+    let newMilestones = [...(streak.streak_milestone_unlocked || [])];
 
     if (streak.last_check_in_date === logDate) {
       return streak;
@@ -61,7 +61,7 @@ export async function checkAndUpdateStreak(userId: string, logDate: string) {
 
     const milestones = [7, 14, 30, 60, 90, 180, 365];
     for (const milestone of milestones) {
-      if (newCurrentStreak >= milestone && !newMilestones.includes(`${milestone}-day-streak')) {
+      if (newCurrentStreak >= milestone && !newMilestones.includes(`${milestone}-day-streak`)) {
         newMilestones.push(`${milestone}-day-streak`);
         await repo.createUserPerk(userId, {
           perk_code: `${milestone}-day-streak`,
@@ -74,7 +74,7 @@ export async function checkAndUpdateStreak(userId: string, logDate: string) {
       }
     }
 
-    streak = await repo.upsertUserStreak(userId, {
+    return await repo.upsertUserStreak(userId, {
       current_streak: newCurrentStreak,
       longest_streak: newLongestStreak,
       last_check_in_date: newLastCheckInDate,
@@ -82,13 +82,15 @@ export async function checkAndUpdateStreak(userId: string, logDate: string) {
       streak_milestone_unlocked: newMilestones
     });
   }
-
-  return streak;
 }
 
 function containsKeyword(name: string, keywords: string[]) {
   const n = String(name || '').toLowerCase();
-  for (const k of keywords) if (k && n.includes(String(k).toLowerCase())) return String(k);
+  for (const k of keywords) {
+    if (k && n.includes(String(k).toLowerCase())) {
+      return String(k);
+    }
+  }
   return null;
 }
 
@@ -96,7 +98,7 @@ export async function validatePlanAgainstUserGoals(userId: string, plan: any): P
   const rules = await repo.loadRulesForUser(userId);
   const violations: Violation[] = [];
   if (!plan || !Array.isArray(plan.days)) return { valid: true, violations };
-  
+
   for (let d = 0; d < plan.days.length; d++) {
     const day = plan.days[d];
     for (const m of (day.meals || [])) {
@@ -150,7 +152,7 @@ export async function applyAutoFixes(plan: any, violations: Violation[]) {
     const day = plan.days[dayIdx];
     if (!day) continue;
     const meal = (day.meals || []).find((m: any) =>
-      (m.recipe_id || m.recipe_title || '').toString() === (v.recipe_id || v.recipe_title || '').toString() ||
+      (String(m.recipe_id || m.recipe_title || '') === String(v.recipe_id || v.recipe_title || '')) ||
       (m.slot || '') === v.slot
     );
     if (!meal) continue;
