@@ -10,6 +10,8 @@ import aiChatRoutes from './ai-chat/ai-chat.routes.js';
 import billingRoutes from './billing/billing.routes.js';
 import localizationRoutes from './localization/localization.routes.js';
 import referralsRoutes from './referrals/referrals.routes.js';
+import contentRoutes from './content/content.routes.js';
+import adminRoutes from './admin/admin.routes.js';
 
 const router = Router();
 
@@ -24,5 +26,7 @@ router.use('/ai', aiChatRoutes);
 router.use('/billing', billingRoutes);
 router.use('/localization', localizationRoutes);
 router.use('/referrals', referralsRoutes);
+router.use('/content', contentRoutes);
+router.use('/admin', adminRoutes);
 
 export default router;
