@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as controller from './health-engagement.controller.js';
-import { requireAuth } from '../../middlewares/auth.middleware.js';
+import { fakeAuth, requireAuth } from '../../middlewares/auth.middleware.js';
 import { methodNotAllowed } from '../../middlewares/methodNotAllowed.middleware.js';
 
 const router = Router();
@@ -11,7 +11,7 @@ router.route('/goals')
   .all(methodNotAllowed);
 
 router.route('/goals/available')
-  .get(requireAuth, controller.listGoalKeys)
+  .get(fakeAuth, controller.listGoalKeys)
   .all(methodNotAllowed);
 
 router.route('/streak')

@@ -59,7 +59,7 @@ async function bootstrap() {
   // Error handling
   app.use(notFound);
   app.use(errorHandler);
-  app.all('*', methodNotAllowed);
+  // app.all('/*', methodNotAllowed);
 
   // Start server
   const port = env.PORT;
