@@ -33,7 +33,8 @@ export async function createPantryItem(req: AuthedRequest, res: Response, next: 
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     const body = pantryItemCreateSchema.parse(req.body);
     const created = await service.createPantryItem(userId, body);
-    res.status(201).json({ success: true, data: { id: created.id } });
+    const fullItem = await service.getPantryItem(userId, created.id);
+    res.status(201).json({ success: true, data: fullItem });
   } catch (e) {
     next(e);
   }
