@@ -152,32 +152,8 @@ export async function checkout(req: AuthedRequest, res: Response, next: NextFunc
             appliedReferral = { type: 'percent_discount', value: pct };
             await referralsService.redeem(userId, referralCode);
           }
-        } else if (aff.benefit === 'trial_days') {
-          const trialDays = Math.max(1, aff.benefit_value);
-          const existingSub = await billingRepo.getUserSubscription(userId);
-          const user = await usersRepo.getUserBasic(userId);
-          const trialEnd = new Date();
-          trialEnd.setDate(trialEnd.getDate() + trialDays);
-          
-          await billingRepo.createOrUpdateUserSubscription(userId, {
-            plan,
-            status: 'trialing',
-            trial_end: trialEnd.toISOString(),
-            amount_cents: amountCents,
-            currency: bp.currency,
-            auto_renew: true,
-            referral_code: referralCode,
-            affiliate_id: aff.id
-          });
-          await referralsService.redeem(userId, referralCode);
-          await referralsService.markApplied(userId);
-          
-          if (user?.email) {
-            await sendMail(user.email, 'Trial Started', `<p>Your trial has been started! It expires on ${trialEnd.toDateString()}.</p>`);
-          }
-          
-          return res.json({ trial_applied: true, trial_days: trialDays });
-        }
+        } 
+        // Remove trial_days option
       }
     }
 
@@ -229,35 +205,6 @@ export async function checkout(req: AuthedRequest, res: Response, next: NextFunc
       gateway_payment_id: initData.id,
       metadata: { ...(payment.metadata || {}), paystack_currency: paystackCurrency, conversion: conversionMeta }
     });
-
-    const existingSub = await billingRepo.getUserSubscription(userId);
-    let subscriptionId: string | null = null;
-    if (!existingSub) {
-      const trialDays = 14;
-      const trialEnd = new Date();
-      trialEnd.setDate(trialEnd.getDate() + trialDays);
-      const newSub = await billingRepo.createOrUpdateUserSubscription(userId, {
-        plan,
-        status: 'trialing',
-        trial_end: trialEnd.toISOString(),
-        amount_cents: amountCents,
-        currency: bp.currency,
-        auto_renew: true,
-        referral_code: referralCode || null
-      });
-      subscriptionId = newSub.id;
-      if (user.email) {
-        await sendMail(user.email, 'Trial Started', `<p>Your trial has been started! It expires on ${trialEnd.toDateString()}.</p>`);
-      }
-    } else {
-      subscriptionId = existingSub.id;
-    }
-
-    if (subscriptionId) {
-      await billingRepo.updatePayment(payment.id, {
-        metadata: { ...(payment.metadata || {}), subscription_id: subscriptionId }
-      });
-    }
 
     return res.json({ reference, authorization_url: initData.authorization_url });
   } catch (e) {

@@ -3,6 +3,7 @@ import { query } from '../../db/pool.js';
 import { logger } from '../../config/logger.js';
 import * as notifications from './notifications.service.js';
 import * as healthLogs from '../health-engagement/health-engagement.repo.js';
+import * as billingService from '../billing/billing.service.js';
 
 // This will be implemented properly when we have the meal plan structure
 async function checkAndSendMealReminders() {
@@ -47,6 +48,9 @@ export function startCronJobs() {
   
   // Run streak protection alerts at 8 PM every day
   cron.schedule('0 20 * * *', checkAndSendStreakAlerts);
+
+  // Run expiry notifications at 9 AM every day
+  cron.schedule('0 9 * * *', billingService.sendExpiryNotifications);
   
   logger.info('Cron jobs started');
 }

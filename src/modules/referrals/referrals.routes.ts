@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as controller from './referrals.controller.js';
-import { requireAuth } from '../../middlewares/auth.middleware.js';
+import { requireAuth, requirePremium } from '../../middlewares/auth.middleware.js';
 import { methodNotAllowed } from '../../middlewares/methodNotAllowed.middleware.js';
 
 const router = Router();
@@ -14,15 +14,15 @@ router.route('/redeem')
   .all(methodNotAllowed);
 
 router.route('/request')
-  .post(requireAuth, controller.requestAffiliate)
+  .post(requireAuth, requirePremium, controller.requestAffiliate)
   .all(methodNotAllowed);
 
 router.route('/status')
-  .get(requireAuth, controller.getReferralStatus)
+  .get(requireAuth, requirePremium, controller.getReferralStatus)
   .all(methodNotAllowed);
 
 router.route('/stats')
-  .get(requireAuth, controller.getReferralStats)
+  .get(requireAuth, requirePremium, controller.getReferralStats)
   .all(methodNotAllowed);
 
 export default router;

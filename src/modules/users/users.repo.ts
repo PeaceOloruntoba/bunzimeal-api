@@ -221,3 +221,15 @@ export async function softDeleteStat(userId: string, id: number) {
   await query('UPDATE user_stats SET deleted_at=NOW() WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL', [id, userId]);
   return { deleted: true } as const;
 }
+
+export async function listAllUsers() {
+  const { rows } = await query<{ id: string; email: string; first_name: string | null; last_name: string | null; role: 'user' | 'admin'; country_id: number | null; country_name: string | null; country_code: string | null; country_currency: string | null; }>(
+    `SELECT u.id, u.email, u.first_name, u.last_name, u.role,
+      c.id AS country_id, c.name AS country_name, c.code AS country_code, c.currency AS country_currency
+     FROM users u LEFT JOIN countries c ON u.country_id = c.id`
+  );
+  return rows.map(r => {
+    const country = r.country_id ? { id: r.country_id, name: r.country_name as string, code: r.country_code as string, currency: r.country_currency as string } : null;
+    return { id: r.id, email: r.email, first_name: r.first_name, last_name: r.last_name, role: r.role, country };
+  });
+}

@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwt.js';
 import { query } from '../db/pool.js';
 import { unauthorized } from '../utils/response.js';
+import { getStatus } from '../modules/billing/billing.service.js';
 
 export type AuthedRequest = Request & { user?: { id: string; email: string; role: 'user' | 'admin' } };
 
@@ -21,6 +22,15 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
   } catch {
     return unauthorized(res, 'Invalid token');
   }
+}
+
+export async function requirePremium(req: AuthedRequest, res: Response, next: NextFunction) {
+  if (!req.user) return unauthorized(res, 'Authentication required');
+  const status = await getStatus(req.user.id);
+  if (!status.is_active) {
+    return res.status(403).json({ error: 'Forbidden', errorMessage: 'Premium subscription required' });
+  }
+  next();
 }
 
 export async function fakeAuth(req: AuthedRequest, res: Response, next: NextFunction) {

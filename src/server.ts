@@ -12,6 +12,7 @@ import v1Routes from './modules/v1.routes.js';
 import { notFound } from './middlewares/notFound.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import { methodNotAllowed } from './middlewares/methodNotAllowed.middleware.js';
+import { startCronJobs } from './modules/notifications/cron.service.js';
 
 async function bootstrap() {
   // Ensure migrations are run on startup
@@ -65,6 +66,7 @@ async function bootstrap() {
   const port = env.PORT;
   app.listen(port, () => {
     logger.info(`Server listening on port ${port} in ${env.NODE_ENV} mode`);
+    startCronJobs();
   });
 }
 
