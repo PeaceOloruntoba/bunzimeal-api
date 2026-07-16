@@ -32,7 +32,7 @@ const EnvSchema = z
     CLOUDINARY_FOLDER: z.string().default('bunzimeal/uploads'),
     OPENAI_API_KEY: z.string().min(1).optional(),
     OPENAI_MODEL: z.string().default('gpt-4o-mini'),
-    BREVO_API_KEY: z.string().min(1).optional(),
+    RESEND_API_KEY: z.string().min(1).optional(),
     OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
     CORS_ORIGIN: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
@@ -48,7 +48,7 @@ const EnvSchema = z
       'PAYSTACK_SECRET_KEY',
       'CLOUDINARY_URL',
       'OPENAI_API_KEY',
-      'BREVO_API_KEY',
+      'RESEND_API_KEY',
     ];
 
     for (const key of required) {
@@ -93,6 +93,6 @@ export const cloudinaryConfig = {
 export const hasCloudinary =
   !!env.CLOUDINARY_CLOUD_NAME && !!env.CLOUDINARY_API_KEY && !!env.CLOUDINARY_API_SECRET;
 
-export const hasBrevo = !!env.BREVO_API_KEY;
+export const hasResend = !!env.RESEND_API_KEY;
 export const hasOpenAi = !!env.OPENAI_API_KEY;
 export const hasPaystack = !!env.PAYSTACK_SECRET_KEY;

@@ -4,7 +4,7 @@ import { query } from '../../../db/pool.js';
 import * as repo from './notifications.repo.js';
 
 async function sendNewsletterEmail(to: string, subject: string, html: string) {
-  await sendMail(to, subject, html, false);
+  await sendMail(to, subject, html);
 }
 
 function escapeHtml(s: string) {

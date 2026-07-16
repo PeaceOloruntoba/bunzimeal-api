@@ -1,9 +1,9 @@
-import { env, hasBrevo } from '../config/env.js';
+import { env, hasResend } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
-type BrevoRecipient = { email: string; name?: string };
+type ResendRecipient = { email: string; name?: string };
 
-function parseEmailFrom(from: string): BrevoRecipient {
+function parseEmailFrom(from: string): ResendRecipient {
   const match = from.match(/^(.*?)<([^>]+)>$/);
   if (match) {
     return { name: match[1].trim().replace(/^"|"$/g, ''), email: match[2].trim() };
@@ -11,40 +11,36 @@ function parseEmailFrom(from: string): BrevoRecipient {
   return { email: from.trim() };
 }
 
-export async function sendMail(to: string, subject: string, html: string, isTransactional = true) {
-  if (!hasBrevo) {
-    logger.warn({ to, subject }, 'BREVO_API_KEY not configured; skipping email send');
+export async function sendMail(to: string, subject: string, html: string) {
+  if (!hasResend) {
+    logger.warn({ to, subject }, 'RESEND_API_KEY not configured; skipping email send');
     return;
   }
 
-  const sender = parseEmailFrom(env.EMAIL_FROM || 'BunziMeal <no-reply@bunzimeal.com>');
-  const headers: Record<string, string> = isTransactional
-    ? { 'X-Priority': '1', Precedence: 'auto' }
-    : { Precedence: 'bulk' };
+  const sender = parseEmailFrom(env.EMAIL_FROM || 'BunziMeal <bunzimealpleanner@gmail.com>');
 
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+  const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
-      'api-key': env.BREVO_API_KEY!,
+      authorization: `Bearer ${env.RESEND_API_KEY!}`,
     },
     body: JSON.stringify({
-      sender,
-      to: [{ email: to }],
+      from: sender.name ? `${sender.name} <${sender.email}>` : sender.email,
+      to: [to],
       subject,
-      htmlContent: html,
-      headers,
+      html,
     }),
   });
 
   if (!response.ok) {
     const detail = await response.text();
-    logger.error({ to, subject, status: response.status, detail }, 'Brevo email send failed');
-    throw new Error(`Brevo email failed (${response.status})`);
+    logger.error({ to, subject, status: response.status, detail }, 'Resend email send failed');
+    throw new Error(`Resend email failed (${response.status})`);
   }
 
-  logger.info({ to, subject }, 'Email sent via Brevo');
+  logger.info({ to, subject }, 'Email sent via Resend');
 }
 
 export async function sendOtpEmail(to: string, code: string) {
