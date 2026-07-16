@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const chatRequestSchema = z.object({
   message: z.string().min(1),
   stream: z.boolean().optional().default(false),
-  persona: z.enum(['dietitian', 'clinical-nutritionist']).optional().default('dietitian'),
+  persona: z.enum(['dietitian', 'nutritionist', 'chef']).optional().default('dietitian'),
 });
 
 export const planRequestSchema = z.object({

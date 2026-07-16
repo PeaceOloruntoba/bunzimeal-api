@@ -10,7 +10,9 @@ export async function ensureSession(req: AuthedRequest, res: Response, next: Nex
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     const id = await service.getOrCreateSingleSession(userId);
-    res.json({ success: true, data: { id } });
+    const usage = await service.getUsage(userId);
+    const limits = await service.checkUsageLimits(userId);
+    res.json({ success: true, data: { id, usage, limits } });
   } catch (e) {
     next(e);
   }
@@ -24,7 +26,9 @@ export async function getMessages(req: AuthedRequest, res: Response, next: NextF
     const session = await aiRepo.getSession(sessionId, userId);
     if (!session) return res.status(404).json({ error: 'Not Found', errorMessage: 'Session not found' });
     const messages = await service.listMessages(sessionId, 50, 0);
-    res.json({ success: true, data: messages });
+    const usage = await service.getUsage(userId);
+    const limits = await service.checkUsageLimits(userId);
+    res.json({ success: true, data: { messages, usage, limits } });
   } catch (e) {
     next(e);
   }
@@ -35,8 +39,8 @@ export async function chat(req: AuthedRequest, res: Response, next: NextFunction
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     const body = chatRequestSchema.parse(req.body);
+    
     if (body.stream) {
-      // SSE streaming response
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -59,7 +63,10 @@ export async function chat(req: AuthedRequest, res: Response, next: NextFunction
         }
       });
     }
-  } catch (e) {
+  } catch (e: any) {
+    if (e.message === 'TOKEN_LIMIT_EXCEEDED') {
+      return res.status(402).json({ error: 'Token Limit Exceeded', errorMessage: 'Please upgrade to premium for unlimited AI access' });
+    }
     next(e);
   }
 }
@@ -71,7 +78,10 @@ export async function generatePlan(req: AuthedRequest, res: Response, next: Next
     const body = planRequestSchema.parse(req.body);
     const planResult = await service.generatePlan(userId, body);
     res.json({ success: true, data: planResult });
-  } catch (e) {
+  } catch (e: any) {
+    if (e.message === 'TOKEN_LIMIT_EXCEEDED') {
+      return res.status(402).json({ error: 'Token Limit Exceeded', errorMessage: 'Please upgrade to premium for unlimited AI access' });
+    }
     next(e);
   }
 }
@@ -85,7 +95,10 @@ export async function critiquePlan(req: AuthedRequest, res: Response, next: Next
     if (!plan) return res.status(400).json({ error: 'No plan', errorMessage: 'Provide plan in body or generate one' });
     const critique = await service.critiquePlan(userId, plan);
     res.json({ success: true, data: critique });
-  } catch (e) {
+  } catch (e: any) {
+    if (e.message === 'TOKEN_LIMIT_EXCEEDED') {
+      return res.status(402).json({ error: 'Token Limit Exceeded', errorMessage: 'Please upgrade to premium for unlimited AI access' });
+    }
     next(e);
   }
 }

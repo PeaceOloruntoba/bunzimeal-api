@@ -37,6 +37,23 @@ export interface AIMemory {
   updated_at: Date;
 }
 
+export interface AIUsage {
+  id: string;
+  user_id: string;
+  session_id: string | null;
+  period_start: Date;
+  period_end: Date;
+  total_tokens_used: number;
+}
+
+// Get current period (monthly)
+function getCurrentPeriod() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  return { start, end };
+}
+
 // AI Sessions
 export async function getOrCreateSingleSession(userId: string) {
   const { rows } = await query<{ id: string }>('SELECT id FROM ai_sessions WHERE user_id=$1 LIMIT 1', [userId]);
@@ -73,6 +90,48 @@ export async function appendMessage(
     'INSERT INTO ai_messages(session_id, user_id, role, content, artifact_id, token_usage) VALUES($1,$2,$3,$4,$5,$6)',
     [sessionId, userId, role, content, artifactId ?? null, tokenUsage ?? null]
   );
+}
+
+// AI Usage Tracking
+export async function getOrCreateCurrentUsage(userId: string) {
+  const { start, end } = getCurrentPeriod();
+  const { rows } = await query<AIUsage>(
+    'SELECT * FROM ai_usage WHERE user_id=$1 AND period_start=$2 AND period_end=$3',
+    [userId, start, end]
+  );
+
+  if (rows.length) return rows[0];
+
+  const { rows: newRows } = await query<AIUsage>(
+    'INSERT INTO ai_usage(user_id, period_start, period_end) VALUES($1,$2,$3) RETURNING *',
+    [userId, start, end]
+  );
+  return newRows[0];
+}
+
+export async function incrementUsage(userId: string, tokens: number, sessionId?: string) {
+  const { start, end } = getCurrentPeriod();
+  const { rows } = await query<AIUsage>(
+    'UPDATE ai_usage SET total_tokens_used = total_tokens_used + $1, updated_at = NOW() WHERE user_id=$2 AND period_start=$3 AND period_end=$4 RETURNING *',
+    [tokens, userId, start, end]
+  );
+  if (!rows.length) {
+    const { rows: insRows } = await query<AIUsage>(
+      'INSERT INTO ai_usage(user_id, session_id, period_start, period_end, total_tokens_used) VALUES($1,$2,$3,$4,$5) RETURNING *',
+      [userId, sessionId || null, start, end, tokens]
+    );
+    return insRows[0];
+  }
+  return rows[0];
+}
+
+export async function getUsage(userId: string) {
+  const { start, end } = getCurrentPeriod();
+  const { rows } = await query<AIUsage>(
+    'SELECT * FROM ai_usage WHERE user_id=$1 AND period_start=$2 AND period_end=$3',
+    [userId, start, end]
+  );
+  return rows[0] || null;
 }
 
 // AI Artifacts
