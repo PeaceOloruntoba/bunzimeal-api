@@ -1,6 +1,8 @@
 import { query } from '../../db/pool.js';
 import { env } from '../../config/env.js';
 import * as aiRepo from './ai-chat.repo.js';
+import type { Persona } from './ai-chat.repo.js';
+import { PERSONAS, PERSONA_TITLES } from './ai-chat.repo.js';
 import * as nutritionRepo from '../nutrition/nutrition.repo.js';
 import * as pantryRepo from '../pantry/pantry.repo.js';
 import * as healthEngagementRepo from '../health-engagement/health-engagement.repo.js';
@@ -10,28 +12,36 @@ import { replaceShoppingList } from '../shopping-list/shopping-list.repo.js';
 import { openaiGenerate, openaiStream, OpenAIUsage } from '../../utils/openai.js';
 import * as billingService from '../billing/billing.service.js';
 
-const FREE_TIER_TOKEN_LIMIT = 2000; // 2000 tokens free/month
-type Persona = 'dietitian' | 'nutritionist' | 'chef';
+export { PERSONAS, PERSONA_TITLES };
+export type { Persona };
+
+const FREE_TIER_TOKEN_LIMIT = 2000;
 
 function buildSystemPrompt(fullName: string, persona: Persona, profile: any, preferences: any) {
   const personaPrompts: Record<Persona, string> = {
     dietitian: `
-Role: Bunzi AI Dietitian - Warm, practical, and personalized dietitian.
+Role: Bunzi AI Dietitian — Warm, practical, and personalized dietitian.
 Tone: Friendly, conversational, not too formal. Speak like a trusted advisor.
 Goals: Help with meal planning, pantry use, budget-friendly ideas, and health-aware suggestions.
 Style: Keep responses clear and actionable, use bullet points when helpful, ask questions to understand better.
 `,
     nutritionist: `
-Role: Bunzi AI Nutritionist - Evidence-based, detailed nutrition expert.
+Role: Bunzi AI Nutritionist — Evidence-based, detailed nutrition expert.
 Tone: Professional but approachable, focus on facts without jargon.
 Goals: Break down nutrition, help reach goals (weight, muscle, energy), explain why certain foods are good.
 Style: Use specific numbers when helpful, prioritize user's health profile and goals.
 `,
     chef: `
-Role: Bunzi AI Chef - Creative, practical culinary expert.
+Role: Bunzi AI Chef — Creative, practical culinary expert.
 Tone: Enthusiastic, encouraging, like a friendly chef friend.
 Goals: Exciting recipe ideas, flavor combinations, smart substitutions, zero-waste cooking with pantry items.
 Style: Make it delicious, practical, and fun to try!
+`,
+    'health-coach': `
+Role: Bunzi AI Health Coach — Motivational, habit-focused wellness coach.
+Tone: Upbeat, empathetic, accountability-driven but kind.
+Goals: Build sustainable habits, stay consistent, mindset, energy, sleep and hydration nudges tied to food.
+Style: Short wins, daily check-ins, celebrate progress, simple next steps, no guilt.
 `
   };
 
@@ -45,7 +55,7 @@ Context Rules:
 - When suggesting recipes, link back to the user's meal plan if available
 - Be conversational: ask questions if you need more info, give encouragement!
 - Keep responses manageable (not too long unless asked for details)
-- Don't give medical advice - if medical concerns, advise consulting a doctor
+- Don't give medical advice — if medical concerns, advise consulting a doctor
 `;
   return basePrompt.trim();
 }
@@ -153,7 +163,6 @@ export async function checkUsageLimits(userId: string) {
 }
 
 export async function chatOnce(userId: string, prompt: string, persona: Persona = 'dietitian') {
-  // Check usage limits first
   const usageCheck = await checkUsageLimits(userId);
   if (!usageCheck.allowed) {
     throw new Error('TOKEN_LIMIT_EXCEEDED');
@@ -163,15 +172,14 @@ export async function chatOnce(userId: string, prompt: string, persona: Persona 
   const fullName = [user?.first_name ?? '', user?.last_name ?? ''].join(' ').trim() || user.email;
   const { profile, preferences } = await loadProfileForContext(userId);
   const systemPrompt = buildSystemPrompt(fullName, persona, profile, preferences);
-  
+
   const pantry = await pantryRepo.getPantryItemsForContext(userId);
   const recipes = await loadRecipeCandidates(15);
   const rules = await healthEngagementRepo.loadRulesForUser(userId);
   const streak = await healthEngagementRepo.getUserStreak(userId);
   const stats = await usersService.computeStatsSummary(userId, 'today');
-  
-  // Load chat history for context
-  const sessionId = await aiRepo.getOrCreateSingleSession(userId);
+
+  const sessionId = await aiRepo.getOrCreatePersonaSession(userId, persona);
   const history = await aiRepo.listMessages(sessionId, 15);
   
   const contextParts = [
@@ -230,14 +238,14 @@ export async function chatStream(userId: string, prompt: string, onDelta: (delta
   const fullName = [user?.first_name ?? '', user?.last_name ?? ''].join(' ').trim() || user.email;
   const { profile, preferences } = await loadProfileForContext(userId);
   const systemPrompt = buildSystemPrompt(fullName, persona, profile, preferences);
-  
+
   const pantry = await pantryRepo.getPantryItemsForContext(userId);
   const recipes = await loadRecipeCandidates(15);
   const rules = await healthEngagementRepo.loadRulesForUser(userId);
   const streak = await healthEngagementRepo.getUserStreak(userId);
   const stats = await usersService.computeStatsSummary(userId, 'today');
-  
-  const sessionId = await aiRepo.getOrCreateSingleSession(userId);
+
+  const sessionId = await aiRepo.getOrCreatePersonaSession(userId, persona);
   const history = await aiRepo.listMessages(sessionId, 15);
   
   const contextParts = [
@@ -380,7 +388,7 @@ Also include legacy weekday keys (Monday-Sunday) for compatibility.`;
   return { plan, artifact_id: artifactId, usage };
 }
 
-export async function critiquePlan(userId: string, plan: any) {
+export async function critiquePlan(userId: string, plan: any, persona: Persona = 'nutritionist') {
   const usageCheck = await checkUsageLimits(userId);
   if (!usageCheck.allowed) {
     throw new Error('TOKEN_LIMIT_EXCEEDED');

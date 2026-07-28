@@ -54,17 +54,52 @@ function getCurrentPeriod() {
   return { start, end };
 }
 
-// AI Sessions
-export async function getOrCreateSingleSession(userId: string) {
-  const { rows } = await query<{ id: string }>('SELECT id FROM ai_sessions WHERE user_id=$1 LIMIT 1', [userId]);
+export type Persona = 'dietitian' | 'nutritionist' | 'chef' | 'health-coach';
+
+export const PERSONAS: Persona[] = ['dietitian', 'nutritionist', 'chef', 'health-coach'];
+
+export const PERSONA_TITLES: Record<Persona, string> = {
+  dietitian: "Dietitian",
+  nutritionist: "Nutritionist",
+  chef: "Chef",
+  'health-coach': "Health Coach",
+};
+
+function personaTitle(persona: Persona, fullName: string): string {
+  return `${fullName}'s ${PERSONA_TITLES[persona]} Thread`;
+}
+
+export async function getOrCreatePersonaSession(userId: string, persona: Persona) {
+  const { rows } = await query<{ id: string }>(
+    'SELECT id FROM ai_sessions WHERE user_id=$1 AND persona=$2 LIMIT 1',
+    [userId, persona]
+  );
   if (rows.length) return rows[0].id;
 
-  const { rows: userRows } = await query<{ first_name: string | null; last_name: string | null; email: string }>('SELECT first_name, last_name, email FROM users WHERE id=$1', [userId]);
+  const { rows: userRows } = await query<{ first_name: string | null; last_name: string | null; email: string }>(
+    'SELECT first_name, last_name, email FROM users WHERE id=$1',
+    [userId]
+  );
   const fullName = [userRows[0]?.first_name ?? '', userRows[0]?.last_name ?? ''].join(' ').trim() || userRows[0]?.email || 'User';
-  const title = `${fullName}'s Bunzi Meal Planner AI`;
+  const title = personaTitle(persona, fullName);
 
-  const { rows: ins } = await query<{ id: string }>('INSERT INTO ai_sessions(user_id, persona, title) VALUES($1,$2,$3) RETURNING id', [userId, 'hybrid', title]);
+  const { rows: ins } = await query<{ id: string }>(
+    'INSERT INTO ai_sessions(user_id, persona, title) VALUES($1,$2,$3) RETURNING id',
+    [userId, persona, title]
+  );
   return ins[0].id;
+}
+
+export async function listPersonaSessions(userId: string): Promise<Array<{ id: string; persona: string; title: string | null; updated_at: Date }>> {
+  const { rows } = await query<{ id: string; persona: string; title: string | null; updated_at: Date }>(
+    'SELECT id, persona, title, updated_at FROM ai_sessions WHERE user_id=$1 ORDER BY updated_at DESC',
+    [userId]
+  );
+  return rows;
+}
+
+export async function getOrCreateSingleSession(userId: string) {
+  return getOrCreatePersonaSession(userId, 'dietitian');
 }
 
 export async function getSession(sessionId: string, userId: string) {

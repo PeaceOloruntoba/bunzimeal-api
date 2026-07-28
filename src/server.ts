@@ -35,7 +35,23 @@ async function bootstrap() {
     })
   );
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGIN || '*', credentials: true }));
+  const allowedOrigins = env.CORS_ORIGIN
+    ? env.CORS_ORIGIN.split(',').map((s) => s.trim())
+    : [];
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.length === 0) {
+          return callback(null, origin ?? true);
+        }
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, origin);
+        }
+        return callback(null, false);
+      },
+      credentials: true,
+    })
+  );
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.use(cookieParser());
