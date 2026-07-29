@@ -1,6 +1,8 @@
 import { OpenAI } from 'openai';
 import { env, hasOpenAi } from '../config/env.js';
 
+export { hasOpenAi };
+
 export type OpenAIUsage = {
   promptTokens?: number;
   candidatesTokens?: number;
