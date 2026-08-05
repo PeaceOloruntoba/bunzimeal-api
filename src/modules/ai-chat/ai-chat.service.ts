@@ -6,6 +6,7 @@ import { PERSONAS, PERSONA_TITLES } from './ai-chat.repo.js';
 import * as nutritionRepo from '../nutrition/nutrition.repo.js';
 import * as pantryRepo from '../pantry/pantry.repo.js';
 import * as healthEngagementRepo from '../health-engagement/health-engagement.repo.js';
+import * as usersRepo from '../users/users.repo.js';
 import * as usersService from '../users/users.service.js';
 import { replaceUserPlan } from '../nutrition/nutrition.repo.js';
 import { replaceShoppingList } from '../shopping-list/shopping-list.repo.js';
@@ -60,46 +61,104 @@ Context Rules:
   return basePrompt.trim();
 }
 
-function getCurrencyInfo(profile: any, preferences: any) {
-  const explicit = profile?.currency || preferences?.currency;
-  const country = String(profile?.country || '').toLowerCase();
-  const map: Record<string, { code: string; symbol: string }> = {
-    ng: { code: 'NGN', symbol: '₦' },
-    nigeria: { code: 'NGN', symbol: '₦' },
-    gh: { code: 'GHS', symbol: '₵' },
-    ghana: { code: 'GHS', symbol: '₵' },
-    us: { code: 'USD', symbol: '$' },
-    usa: { code: 'USD', symbol: '$' },
-    unitedstates: { code: 'USD', symbol: '$' },
-    uk: { code: 'GBP', symbol: '£' },
-    unitedkingdom: { code: 'GBP', symbol: '£' },
-    gb: { code: 'GBP', symbol: '£' },
-    ke: { code: 'KES', symbol: 'KSh' },
-    kenya: { code: 'KES', symbol: 'KSh' },
-    za: { code: 'ZAR', symbol: 'R' },
-    southafrica: { code: 'ZAR', symbol: 'R' },
-    eu: { code: 'EUR', symbol: '€' },
-    germany: { code: 'EUR', symbol: '€' },
-    france: { code: 'EUR', symbol: '€' },
-    spain: { code: 'EUR', symbol: '€' },
-    italy: { code: 'EUR', symbol: '€' }
-  };
-  if (explicit) {
-    const v = String(explicit).toUpperCase();
-    if (v === 'NGN') return { code: 'NGN', symbol: '₦' };
-    if (v === 'GHS') return { code: 'GHS', symbol: '₵' };
-    if (v === 'GBP') return { code: 'GBP', symbol: '£' };
-    if (v === 'EUR') return { code: 'EUR', symbol: '€' };
-    if (v === 'KES') return { code: 'KES', symbol: 'KSh' };
-    return { code: v, symbol: '$' };
-  }
-  const key = country.replace(/\s+/g, '');
-  return map[key] || { code: 'USD', symbol: '$' };
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  NGN: '₦',
+  GHS: '₵',
+  USD: '$',
+  GBP: '£',
+  EUR: '€',
+  KES: 'KSh',
+  ZAR: 'R',
+  CAD: 'C$',
+  AUD: 'A$',
+  JPY: '¥',
+  CNY: '¥',
+  INR: '₹',
+  BRL: 'R$',
+  MXN: 'Mex$',
+  CLP: 'CLP$',
+  COP: 'Col$',
+  PEN: 'S/',
+  ARS: 'Arg$',
+  CHF: 'CHF',
+  SEK: 'kr',
+  NOK: 'kr',
+  DKK: 'kr',
+  PLN: 'zł',
+  CZK: 'Kč',
+  HUF: 'Ft',
+  RON: 'lei',
+  TRY: '₺',
+  RUB: '₽',
+  UAH: '₴',
+  THB: '฿',
+  VND: '₫',
+  IDR: 'Rp',
+  MYR: 'RM',
+  SGD: 'S$',
+  HKD: 'HK$',
+  TWD: 'NT$',
+  KRW: '₩',
+  PHP: '₱',
+  PKR: 'Rs',
+  BDT: '৳',
+  LKR: 'Rs',
+  NPR: 'Rs',
+  AED: 'د.إ',
+  SAR: '﷼',
+  QAR: '﷼',
+  EGP: '£',
+  MAD: 'د.م.',
+  DZD: 'د.ج',
+  TND: 'د.ت',
+  KWD: 'د.ك',
+  BHD: 'ب.د',
+  OMR: '﷼',
+  JOD: 'د.ا',
+  ILS: '₪',
+  NZD: 'NZ$',
+  UGX: 'USh',
+  TZS: 'TSh',
+  RWF: 'FRw',
+  MWK: 'MK',
+  ZMW: 'K',
+  GMD: 'D',
+  SLL: 'Le',
+  GNF: 'FG',
+  CVE: '$',
+  ETB: 'Br',
+  SDG: 'ج.س.',
+  XAF: 'FCFA',
+  XOF: 'CFA',
+};
+
+function currencySymbolForCode(code: string | null | undefined): string {
+  if (!code) return '$';
+  const up = String(code).toUpperCase();
+  return CURRENCY_SYMBOLS[up] || up;
 }
 
-async function getUserIdentity(userId: string): Promise<{ first_name: string | null; last_name: string | null; email: string }> {
-  const { rows } = await query<{ first_name: string | null; last_name: string | null; email: string }>('SELECT first_name, last_name, email FROM users WHERE id=$1', [userId]);
-  return rows[0] || { first_name: null, last_name: null, email: 'user' };
+function getCurrencyInfo(userCountry: usersRepo.Country | null, profile: any, preferences: any) {
+  const explicitPref = (preferences as any)?.currency || (profile as any)?.currency;
+  if (explicitPref) {
+    const code = String(explicitPref).toUpperCase();
+    return { code, symbol: currencySymbolForCode(code) };
+  }
+  if (userCountry?.currency) {
+    const code = String(userCountry.currency).toUpperCase();
+    return { code, symbol: currencySymbolForCode(code) };
+  }
+  return { code: 'USD', symbol: '$' };
+}
+
+async function getUserIdentity(userId: string) {
+  const basic = await usersRepo.getUserBasic(userId);
+  return {
+    first_name: basic?.first_name ?? null,
+    last_name: basic?.last_name ?? null,
+    email: basic?.email ?? 'user',
+    country: basic?.country ?? null,
+  };
 }
 
 async function loadProfileForContext(userId: string) {
@@ -108,6 +167,83 @@ async function loadProfileForContext(userId: string) {
   const { rows: prefRows } = await query('SELECT * FROM user_preferences WHERE user_id=$1', [userId]);
   const preferences = prefRows[0] || {};
   return { profile, preferences };
+}
+
+function formatProfileForAI(profile: any, preferences: any, country: usersRepo.Country | null): string {
+  const lines: string[] = [];
+
+  lines.push('-- Personal Info --');
+  if (profile.age != null) lines.push(`Age: ${profile.age}`);
+  if (profile.gender) lines.push(`Gender: ${profile.gender}`);
+  if (profile.height_cm != null) lines.push(`Height: ${profile.height_cm} cm`);
+  if (profile.weight_kg != null) lines.push(`Weight: ${profile.weight_kg} kg`);
+  if (profile.activity_level) lines.push(`Activity Level: ${profile.activity_level}`);
+  if (country) lines.push(`Location: ${country.name} (${country.code}) — Currency: ${country.currency}`);
+
+  lines.push('');
+  lines.push('-- Health & Goals --');
+  if (Array.isArray(profile.health_goals) && profile.health_goals.length) {
+    lines.push(`Health Goals: ${profile.health_goals.join(', ')}`);
+  }
+  if (Array.isArray(profile.food_allergies) && profile.food_allergies.length) {
+    lines.push(`Food Allergies: ${profile.food_allergies.join(', ')}`);
+  }
+  if (Array.isArray(profile.medical_dietary_restrictions) && profile.medical_dietary_restrictions.length) {
+    lines.push(`Medical Dietary Restrictions: ${profile.medical_dietary_restrictions.join(', ')}`);
+  }
+  if (preferences.diet_type || profile.diet_type) {
+    lines.push(`Diet Type: ${preferences.diet_type || profile.diet_type}`);
+  }
+  if (Array.isArray(preferences.allergens) && preferences.allergens.length) {
+    lines.push(`Allergens (preferences): ${preferences.allergens.join(', ')}`);
+  }
+
+  lines.push('');
+  lines.push('-- Taste & Cooking --');
+  if (Array.isArray(profile.cuisine_preferences) && profile.cuisine_preferences.length) {
+    lines.push(`Cuisine Preferences: ${profile.cuisine_preferences.join(', ')}`);
+  }
+  if (Array.isArray(profile.favorite_flavors) && profile.favorite_flavors.length) {
+    lines.push(`Favorite Flavors: ${profile.favorite_flavors.join(', ')}`);
+  }
+  if (profile.heat_tolerance) lines.push(`Heat Tolerance: ${profile.heat_tolerance}`);
+  if (Array.isArray(profile.foods_loved) && profile.foods_loved.length) {
+    lines.push(`Foods Loved: ${profile.foods_loved.join(', ')}`);
+  }
+  if (Array.isArray(profile.foods_disliked) && profile.foods_disliked.length) {
+    lines.push(`Foods Disliked: ${profile.foods_disliked.join(', ')}`);
+  }
+  if (Array.isArray(preferences.disliked_ingredients) && preferences.disliked_ingredients.length) {
+    lines.push(`Disliked Ingredients (preferences): ${preferences.disliked_ingredients.join(', ')}`);
+  }
+  if (Array.isArray(preferences.liked_cuisines) && preferences.liked_cuisines.length) {
+    lines.push(`Liked Cuisines (preferences): ${preferences.liked_cuisines.join(', ')}`);
+  }
+  if (profile.cooking_skill_level) lines.push(`Cooking Skill: ${profile.cooking_skill_level}`);
+  if (profile.meal_prep_style) lines.push(`Meal Prep Style: ${profile.meal_prep_style}`);
+
+  lines.push('');
+  lines.push('-- Budget & Meals --');
+  if (profile.budget_level) lines.push(`Budget Level: ${profile.budget_level}`);
+  if (profile.meals_per_day != null) lines.push(`Meals Per Day: ${profile.meals_per_day}`);
+  if (preferences.budget_per_week != null) lines.push(`Budget Per Week: ${preferences.budget_per_week}`);
+  if (preferences.budget_per_meal != null) lines.push(`Budget Per Meal: ${preferences.budget_per_meal}`);
+  if (preferences.preferred_prep_minutes != null) lines.push(`Preferred Prep Minutes: ${preferences.preferred_prep_minutes}`);
+  if (profile.household_size) lines.push(`Household Size: ${profile.household_size}`);
+  if (profile.shopping_frequency) lines.push(`Shopping Frequency: ${profile.shopping_frequency}`);
+  if (Array.isArray(profile.kitchen_equipment_available) && profile.kitchen_equipment_available.length) {
+    lines.push(`Kitchen Equipment: ${profile.kitchen_equipment_available.join(', ')}`);
+  }
+  if (profile.leftovers_preference) lines.push(`Leftovers Preference: ${profile.leftovers_preference}`);
+
+  lines.push('');
+  lines.push('-- Macros --');
+  if (preferences.macro_calories != null) lines.push(`Target Calories: ${preferences.macro_calories} kcal`);
+  if (preferences.macro_protein_g != null) lines.push(`Target Protein: ${preferences.macro_protein_g} g`);
+  if (preferences.macro_carbs_g != null) lines.push(`Target Carbs: ${preferences.macro_carbs_g} g`);
+  if (preferences.macro_fat_g != null) lines.push(`Target Fat: ${preferences.macro_fat_g} g`);
+
+  return lines.join('\n');
 }
 
 async function loadRecipeCandidates(limit = 20) {
@@ -170,6 +306,7 @@ export async function chatOnce(userId: string, prompt: string, persona: Persona 
 
   const user = await getUserIdentity(userId);
   const fullName = [user?.first_name ?? '', user?.last_name ?? ''].join(' ').trim() || user.email;
+  const userCountry = user.country;
   const { profile, preferences } = await loadProfileForContext(userId);
   const systemPrompt = buildSystemPrompt(fullName, persona, profile, preferences);
 
@@ -182,11 +319,17 @@ export async function chatOnce(userId: string, prompt: string, persona: Persona 
   const sessionId = await aiRepo.getOrCreatePersonaSession(userId, persona);
   const history = await aiRepo.listMessages(sessionId, 15);
   
+  const userIdentityBlock = [
+    `USER_IDENTITY:`,
+    `Name: ${fullName}`,
+    userCountry ? `Country: ${userCountry.name} (${userCountry.code})` : 'Country: Not set',
+    userCountry ? `Currency: ${userCountry.currency}` : 'Currency: USD (default)',
+  ].join('\n');
+
   const contextParts = [
-    `USER_IDENTITY: Name - ${fullName}`,
+    userIdentityBlock,
     `SYSTEM_PROFILE:\n${systemPrompt}`,
-    `PROFILE:\n${JSON.stringify(profile)}`,
-    `PREFERENCES:\n${JSON.stringify(preferences)}`,
+    `USER_PROFILE:\n${formatProfileForAI(profile, preferences, userCountry)}`,
     `PANTRY:\n${pantry.length ? pantry.join(', ') : 'No items in pantry'}`,
     `RECIPES_AVAILABLE:\n${JSON.stringify(recipes)}`,
     `HEALTH_GOALS:\n${JSON.stringify(rules)}`,
@@ -194,10 +337,10 @@ export async function chatOnce(userId: string, prompt: string, persona: Persona 
     `TODAY_STATS:\n${JSON.stringify(stats)}`
   ];
 
-  const { code, symbol } = getCurrencyInfo(profile, preferences);
+  const { code, symbol } = getCurrencyInfo(userCountry, profile, preferences);
   const budgetPerMeal = (preferences as any)?.budget_per_meal ? Number((preferences as any).budget_per_meal) : null;
   if (budgetPerMeal != null && !Number.isNaN(budgetPerMeal)) {
-    contextParts.push(`BUDGET_GUIDE:\nUser budget per meal ~ ${symbol}${budgetPerMeal} (${code}). Minimize waste, prioritize pantry and local options.`);
+    contextParts.push(`BUDGET_GUIDE:\nUser budget per meal ~ ${symbol}${budgetPerMeal} (${code}). Minimize waste, prioritize pantry and local seasonal produce${userCountry ? ` for ${userCountry.name}` : ''}.`);
   }
 
   // Build messages array with history
@@ -235,6 +378,7 @@ export async function chatStream(userId: string, prompt: string, onDelta: (delta
 
   const user = await getUserIdentity(userId);
   const fullName = [user?.first_name ?? '', user?.last_name ?? ''].join(' ').trim() || user.email;
+  const userCountry = user.country;
   const { profile, preferences } = await loadProfileForContext(userId);
   const systemPrompt = buildSystemPrompt(fullName, persona, profile, preferences);
 
@@ -247,11 +391,17 @@ export async function chatStream(userId: string, prompt: string, onDelta: (delta
   const sessionId = await aiRepo.getOrCreatePersonaSession(userId, persona);
   const history = await aiRepo.listMessages(sessionId, 15);
   
+  const userIdentityBlock = [
+    `USER_IDENTITY:`,
+    `Name: ${fullName}`,
+    userCountry ? `Country: ${userCountry.name} (${userCountry.code})` : 'Country: Not set',
+    userCountry ? `Currency: ${userCountry.currency}` : 'Currency: USD (default)',
+  ].join('\n');
+
   const contextParts = [
-    `USER_IDENTITY: Name - ${fullName}`,
+    userIdentityBlock,
     `SYSTEM_PROFILE:\n${systemPrompt}`,
-    `PROFILE:\n${JSON.stringify(profile)}`,
-    `PREFERENCES:\n${JSON.stringify(preferences)}`,
+    `USER_PROFILE:\n${formatProfileForAI(profile, preferences, userCountry)}`,
     `PANTRY:\n${pantry.length ? pantry.join(', ') : 'No items in pantry'}`,
     `RECIPES_AVAILABLE:\n${JSON.stringify(recipes)}`,
     `HEALTH_GOALS:\n${JSON.stringify(rules)}`,
@@ -259,10 +409,10 @@ export async function chatStream(userId: string, prompt: string, onDelta: (delta
     `TODAY_STATS:\n${JSON.stringify(stats)}`
   ];
 
-  const { code, symbol } = getCurrencyInfo(profile, preferences);
+  const { code, symbol } = getCurrencyInfo(userCountry, profile, preferences);
   const budgetPerMeal = (preferences as any)?.budget_per_meal ? Number((preferences as any).budget_per_meal) : null;
   if (budgetPerMeal != null && !Number.isNaN(budgetPerMeal)) {
-    contextParts.push(`BUDGET_GUIDE:\nUser budget per meal ~ ${symbol}${budgetPerMeal} (${code}). Minimize waste, prioritize pantry and local options.`);
+    contextParts.push(`BUDGET_GUIDE:\nUser budget per meal ~ ${symbol}${budgetPerMeal} (${code}). Minimize waste, prioritize pantry and local seasonal produce${userCountry ? ` for ${userCountry.name}` : ''}.`);
   }
 
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
@@ -303,17 +453,27 @@ export async function generatePlan(userId: string, req: { days?: number; mealsPe
 
   const user = await getUserIdentity(userId);
   const fullName = [user?.first_name ?? '', user?.last_name ?? ''].join(' ').trim() || user.email;
+  const userCountry = user.country;
   const rules = await healthEngagementRepo.loadRulesForUser(userId);
-  const { profile } = await loadProfileForContext(userId);
+  const { profile, preferences } = await loadProfileForContext(userId);
   const pantry = await pantryRepo.getPantryItemsForContext(userId);
   const recipes = await loadRecipeCandidates(30);
+  const { code, symbol } = getCurrencyInfo(userCountry, profile, preferences);
 
   const system = `Bunzi Meal Planner - Generate a personalized meal plan in JSON format.
 User: ${fullName}
+Country: ${userCountry ? `${userCountry.name} (${userCountry.code})` : 'Not set'}
+Currency: ${code} (${symbol})
+User Profile:
+${formatProfileForAI(profile, preferences, userCountry)}
+
 Rules: ${JSON.stringify(rules)}
 Pantry: ${pantry.join(', ') || 'No items'}
 Recipes: ${JSON.stringify(recipes)}
+Budget: ${req.budget ? JSON.stringify(req.budget) : ((preferences as any).budget_per_meal != null ? `${symbol}${(preferences as any).budget_per_meal} per meal` : 'Not set')}
+Max Prep Minutes: ${req.max_prep_minutes ?? (preferences as any).preferred_prep_minutes ?? 'No limit'}
 
+Use local, seasonal produce appropriate for ${userCountry ? userCountry.name : 'the user\'s region'}.
 Return ONLY valid JSON:
 {
   "days": [
@@ -396,12 +556,18 @@ export async function critiquePlan(userId: string, plan: any, persona: Persona =
 
   const user = await getUserIdentity(userId);
   const fullName = [user?.first_name ?? '', user?.last_name ?? ''].join(' ').trim() || user.email;
+  const userCountry = user.country;
   const rules = await healthEngagementRepo.loadRulesForUser(userId);
-  const { profile } = await loadProfileForContext(userId);
+  const { profile, preferences } = await loadProfileForContext(userId);
 
   const system = `You are a helpful clinical nutritionist analyzing meal plans.
 User: ${fullName}
+Country: ${userCountry ? `${userCountry.name} (${userCountry.code})` : 'Not set'}
+User Profile:
+${formatProfileForAI(profile, preferences, userCountry)}
+
 Health Goals/Rules: ${JSON.stringify(rules)}
+Consider user's allergies, restrictions, health goals, budget, cooking skill, and activity level in your critique.
 
 Return ONLY valid JSON: { "summary": "...", "faults": [{"day":1,"slot":"dinner","issue":"...","severity":"info","suggestion":"..."}] }`;
 
