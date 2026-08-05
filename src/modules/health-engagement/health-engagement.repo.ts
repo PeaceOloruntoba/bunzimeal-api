@@ -320,8 +320,11 @@ export async function getHealthSummary(userId: string, daysBack: number = 7) {
   }
 
   for (const log of logs) {
+    // normalize date to YYYY-MM-DD (DB returns strings; coerce safely)
+    const logDate = String(log.log_date).slice(0, 10);
+
     if (series[log.log_type]) {
-      series[log.log_type].push({ date: log.log_date, value: Number(log.value) });
+      series[log.log_type].push({ date: logDate, value: Number(log.value) });
     }
     const agg = aggregates[log.log_type];
     if (agg) {
