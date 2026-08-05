@@ -9,7 +9,7 @@ import * as healthEngagementRepo from '../health-engagement/health-engagement.re
 import * as usersService from '../users/users.service.js';
 import { replaceUserPlan } from '../nutrition/nutrition.repo.js';
 import { replaceShoppingList } from '../shopping-list/shopping-list.repo.js';
-import { openaiGenerate, openaiStream, OpenAIUsage } from '../../utils/openai.js';
+import { geminiGenerate, geminiStream, GeminiUsage } from '../../utils/gemini.js';
 import * as billingService from '../billing/billing.service.js';
 
 export { PERSONAS, PERSONA_TITLES };
@@ -214,8 +214,7 @@ export async function chatOnce(userId: string, prompt: string, persona: Persona 
   
   const optimized = optimizeContext(messages);
   
-  // Call OpenAI
-  const response = await openaiGenerate(prompt, optimized.map(m => m.role + ':\n' + m.content));
+  const response = await geminiGenerate(prompt, optimized.map(m => m.role + ':\n' + m.content));
   
   // Track usage
   const totalTokens = response.usage.totalTokens || 100;
@@ -279,14 +278,15 @@ export async function chatStream(userId: string, prompt: string, onDelta: (delta
   
   const optimized = optimizeContext(messages);
   
-  const fullResponse = await openaiStream(
+  const fullResponse = await geminiStream(
     prompt, 
     optimized.map(m => m.role + ':\n' + m.content),
     onDelta
   );
   
-  // Approximate usage for streaming
-  const usage: OpenAIUsage = { totalTokens: Math.floor(fullResponse.text.length / 4) + 500 };
+  const usage: GeminiUsage = fullResponse.usage.totalTokens
+    ? fullResponse.usage
+    : { totalTokens: Math.floor(fullResponse.text.length / 4) + 500 };
   await aiRepo.incrementUsage(userId, usage.totalTokens || 500, sessionId);
   
   await aiRepo.appendMessage(sessionId, userId, 'user', { text: prompt });
@@ -327,7 +327,7 @@ Also include legacy weekday keys (Monday-Sunday) for compatibility.`;
   const prompt = `${req.prompt || 'Generate a healthy meal plan for the week'}\nDays: ${req.days || 7}, Meals per day: ${req.mealsPerDay || 3}`;
   
   const sessionId = await aiRepo.getOrCreateSingleSession(userId);
-  const response = await openaiGenerate(prompt, [system]);
+  const response = await geminiGenerate(prompt, [system]);
   
   // Parse JSON from response
   let plan;
@@ -405,7 +405,7 @@ Health Goals/Rules: ${JSON.stringify(rules)}
 
 Return ONLY valid JSON: { "summary": "...", "faults": [{"day":1,"slot":"dinner","issue":"...","severity":"info","suggestion":"..."}] }`;
 
-  const response = await openaiGenerate('Critique this meal plan', [system, JSON.stringify(plan)]);
+  const response = await geminiGenerate('Critique this meal plan', [system, JSON.stringify(plan)]);
   
   // Parse or fallback
   let critique;
