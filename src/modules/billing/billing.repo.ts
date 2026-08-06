@@ -84,18 +84,18 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
 export async function createOrUpdateUserSubscription(userId: string, data: Partial<Omit<UserSubscription, 'id' | 'user_id' | 'created_at' | 'updated_at'>>) {
   const { rows } = await query<UserSubscription>(
     `INSERT INTO user_subscriptions(user_id, plan, status, trial_end, current_period_start, current_period_end, amount_cents, currency, auto_renew, referral_code, affiliate_id, created_at, updated_at)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())
+     VALUES($1,COALESCE($2,'monthly'),COALESCE($3,'expired'),$4,$5,$6,COALESCE($7,0),COALESCE($8,'USD'),COALESCE($9,false),$10,$11,NOW(),NOW())
      ON CONFLICT (user_id) DO UPDATE SET
-       plan = COALESCE(EXCLUDED.plan, user_subscriptions.plan),
-       status = COALESCE(EXCLUDED.status, user_subscriptions.status),
-       trial_end = COALESCE(EXCLUDED.trial_end, user_subscriptions.trial_end),
-       current_period_start = COALESCE(EXCLUDED.current_period_start, user_subscriptions.current_period_start),
-       current_period_end = COALESCE(EXCLUDED.current_period_end, user_subscriptions.current_period_end),
-       amount_cents = COALESCE(EXCLUDED.amount_cents, user_subscriptions.amount_cents),
-       currency = COALESCE(EXCLUDED.currency, user_subscriptions.currency),
-       auto_renew = COALESCE(EXCLUDED.auto_renew, user_subscriptions.auto_renew),
-       referral_code = COALESCE(EXCLUDED.referral_code, user_subscriptions.referral_code),
-       affiliate_id = COALESCE(EXCLUDED.affiliate_id, user_subscriptions.affiliate_id),
+       plan = CASE WHEN $2 IS NOT NULL THEN EXCLUDED.plan ELSE user_subscriptions.plan END,
+       status = CASE WHEN $3 IS NOT NULL THEN EXCLUDED.status ELSE user_subscriptions.status END,
+       trial_end = CASE WHEN $4 IS NOT NULL THEN EXCLUDED.trial_end ELSE user_subscriptions.trial_end END,
+       current_period_start = CASE WHEN $5 IS NOT NULL THEN EXCLUDED.current_period_start ELSE user_subscriptions.current_period_start END,
+       current_period_end = CASE WHEN $6 IS NOT NULL THEN EXCLUDED.current_period_end ELSE user_subscriptions.current_period_end END,
+       amount_cents = CASE WHEN $7 IS NOT NULL THEN EXCLUDED.amount_cents ELSE user_subscriptions.amount_cents END,
+       currency = CASE WHEN $8 IS NOT NULL THEN EXCLUDED.currency ELSE user_subscriptions.currency END,
+       auto_renew = CASE WHEN $9 IS NOT NULL THEN EXCLUDED.auto_renew ELSE user_subscriptions.auto_renew END,
+       referral_code = CASE WHEN $10 IS NOT NULL THEN EXCLUDED.referral_code ELSE user_subscriptions.referral_code END,
+       affiliate_id = CASE WHEN $11 IS NOT NULL THEN EXCLUDED.affiliate_id ELSE user_subscriptions.affiliate_id END,
        updated_at = NOW()
      RETURNING *`,
     [userId, data.plan, data.status, data.trial_end, data.current_period_start, data.current_period_end, data.amount_cents, data.currency, data.auto_renew, data.referral_code, data.affiliate_id]
