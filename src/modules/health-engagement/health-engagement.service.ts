@@ -2,6 +2,11 @@ import * as repo from './health-engagement.repo.js';
 import type { Violation, HealthLog, DailyCheckin, UserStreak } from './health-engagement.repo.js';
 import { openaiGenerate, hasOpenAi } from '../../utils/openai.js';
 
+function toLocalDateStr(d: Date = new Date()): string {
+  const tz = d.getTimezoneOffset() * 60 * 1000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
 export async function getUserGoals(userId: string): Promise<string[]> {
   const profile = await repo.getProfile(userId);
   const health = (profile && (profile.health || {})) || {};
@@ -24,30 +29,24 @@ export async function listAvailableGoalKeys() {
 }
 
 export async function checkAndUpdateStreak(userId: string, logDate: string) {
-  let streak = await repo.getUserStreak(userId);
-  const logDateStr = String(logDate).slice(0, 10);
-  const today = new Date();
-  const tzOffsetMs = today.getTimezoneOffset() * 60 * 1000;
-  const todayStr = new Date(today.getTime() - tzOffsetMs).toISOString().slice(0, 10);
-
-  const logDateNum = parseInt(logDateStr.replace(/-/g, ''), 10);
-  const todayNum = parseInt(todayStr.replace(/-/g, ''), 10);
-  const lastCheckInNum = streak?.last_check_in_date ? parseInt(String(streak.last_check_in_date).slice(0, 10).replace(/-/g, ''), 10) : null;
-
-  function dateDiffDays(a: number, b: number): number {
-    const ay = Math.floor(a / 10000);
-    const am = Math.floor((a % 10000) / 100);
-    const ad = a % 100;
-    const by = Math.floor(b / 10000);
-    const bm = Math.floor((b % 10000) / 100);
-    const bd = b % 100;
-    const da = new Date(ay, am - 1, ad);
-    const db = new Date(by, bm - 1, bd);
-    return Math.round((da.getTime() - db.getTime()) / 86400000);
+  function parseYmd(s: string): Date {
+    const str = String(s).slice(0, 10);
+    const [y, m, d] = str.split('-').map(n => parseInt(n, 10));
+    return new Date(y, (m || 1) - 1, d || 1);
   }
 
+  function dayDiff(a: Date, b: Date): number {
+    const ms = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate()) - Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+    return Math.round(ms / 86400000);
+  }
+
+  const logDateStr = toLocalDateStr(parseYmd(String(logDate)));
+  const logDay = parseYmd(logDateStr);
+
+  let streak = await repo.getUserStreak(userId);
+
   if (!streak) {
-    streak = await repo.upsertUserStreak(userId, {
+    await repo.upsertUserStreak(userId, {
       current_streak: 1,
       longest_streak: 1,
       last_check_in_date: logDateStr,
@@ -55,97 +54,90 @@ export async function checkAndUpdateStreak(userId: string, logDate: string) {
       streak_milestone_unlocked: []
     });
     return await repo.getUserStreak(userId);
-  } else {
-    let newCurrentStreak = streak.current_streak;
-    let newLastCheckInDate = streak.last_check_in_date;
-    let newTotalCheckIns = streak.total_check_ins;
-    let newLongestStreak = streak.longest_streak;
-    let newMilestones = [...(streak.streak_milestone_unlocked || [])];
-    let updated = false;
-    let incrementTotal = true;
+  }
 
-    if (lastCheckInNum && logDateNum === lastCheckInNum) {
+  const lastDateStr = streak.last_check_in_date ? toLocalDateStr(parseYmd(String(streak.last_check_in_date))) : null;
+  const lastDay = lastDateStr ? parseYmd(lastDateStr) : null;
+
+  let newCurrentStreak = streak.current_streak;
+  let newLastCheckInDate = lastDateStr;
+  let newTotalCheckIns = streak.total_check_ins;
+  let newLongestStreak = streak.longest_streak;
+  let newMilestones = [...(streak.streak_milestone_unlocked || [])];
+  let updated = false;
+
+  if (lastDay) {
+    const diff = dayDiff(logDay, lastDay);
+
+    if (diff === 0) {
       return streak;
-    } else if (lastCheckInNum && logDateNum < lastCheckInNum) {
-      incrementTotal = false;
-    } else if (lastCheckInNum) {
-      const diff = dateDiffDays(logDateNum, lastCheckInNum);
-      if (diff === 1) {
-        newCurrentStreak = streak.current_streak + 1;
-        newLastCheckInDate = logDateStr;
-        if (newCurrentStreak > newLongestStreak) {
-          newLongestStreak = newCurrentStreak;
-        }
-        updated = true;
-      } else if (diff > 1) {
-        newCurrentStreak = 1;
-        newLastCheckInDate = logDateStr;
-        updated = true;
-      } else {
-        incrementTotal = false;
-      }
+    } else if (diff < 0) {
+      return streak;
+    } else if (diff === 1) {
+      newCurrentStreak = streak.current_streak + 1;
+      newLastCheckInDate = logDateStr;
+      newTotalCheckIns = streak.total_check_ins + 1;
+      if (newCurrentStreak > newLongestStreak) newLongestStreak = newCurrentStreak;
+      updated = true;
     } else {
       newCurrentStreak = 1;
       newLastCheckInDate = logDateStr;
-      newLongestStreak = Math.max(newLongestStreak, 1);
-      updated = true;
-    }
-
-    if (incrementTotal) {
       newTotalCheckIns = streak.total_check_ins + 1;
+      if (newCurrentStreak > newLongestStreak) newLongestStreak = newCurrentStreak;
       updated = true;
     }
+  } else {
+    newCurrentStreak = 1;
+    newLastCheckInDate = logDateStr;
+    newTotalCheckIns = streak.total_check_ins + 1;
+    if (newLongestStreak < 1) newLongestStreak = 1;
+    updated = true;
+  }
 
-    if (!updated) {
-      return streak;
-    }
+  if (!updated) {
+    return streak;
+  }
 
-    const milestones = [7, 14, 30, 60, 90, 180, 365];
-    const justUnlocked: string[] = [];
-    for (const milestone of milestones) {
-      if (newCurrentStreak >= milestone && !newMilestones.includes(`${milestone}-day-streak`)) {
-        newMilestones.push(`${milestone}-day-streak`);
-        justUnlocked.push(`${milestone}-day-streak`);
-        await repo.createUserPerk(userId, {
-          perk_code: `${milestone}-day-streak`,
-          perk_name: `${milestone} Day Streak!`,
-          perk_type: 'streak_milestone',
-          perk_value: null,
-          expires_at: null,
-          metadata: null
-        });
-      }
-    }
-
-    const newStreak = await repo.upsertUserStreak(userId, {
-      current_streak: newCurrentStreak,
-      longest_streak: newLongestStreak,
-      last_check_in_date: newLastCheckInDate,
-      total_check_ins: newTotalCheckIns,
-      streak_milestone_unlocked: newMilestones
-    });
-
-    for (const m of justUnlocked) {
-      const days = parseInt(m.split('-')[0], 10);
-      await repo.createRecommendation(userId, {
-        recommendation_type: 'milestone_advice',
-        title: `🔥 ${days}-Day Streak Unlocked!`,
-        content: `Incredible! You've been consistent for ${days} days straight. You're forming lifelong habits. Keep the momentum going—your future self will thank you. What's your next goal?`,
-        category: 'milestone',
-        priority: 100,
-        related_log_type: null,
+  const milestones = [7, 14, 30, 60, 90, 180, 365];
+  const justUnlocked: string[] = [];
+  for (const milestone of milestones) {
+    if (newCurrentStreak >= milestone && !newMilestones.includes(`${milestone}-day-streak`)) {
+      newMilestones.push(`${milestone}-day-streak`);
+      justUnlocked.push(`${milestone}-day-streak`);
+      await repo.createUserPerk(userId, {
+        perk_code: `${milestone}-day-streak`,
+        perk_name: `${milestone} Day Streak!`,
+        perk_type: 'streak_milestone',
+        perk_value: null,
         expires_at: null,
-        metadata: { milestone_days: days }
+        metadata: null
       });
     }
-
-    return newStreak;
   }
-}
 
-function toLocalDateStr(d: Date = new Date()): string {
-  const tz = d.getTimezoneOffset() * 60 * 1000;
-  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+  const newStreak = await repo.upsertUserStreak(userId, {
+    current_streak: newCurrentStreak,
+    longest_streak: newLongestStreak,
+    last_check_in_date: newLastCheckInDate,
+    total_check_ins: newTotalCheckIns,
+    streak_milestone_unlocked: newMilestones
+  });
+
+  for (const m of justUnlocked) {
+    const days = parseInt(m.split('-')[0], 10);
+    await repo.createRecommendation(userId, {
+      recommendation_type: 'milestone_advice',
+      title: `🔥 ${days}-Day Streak Unlocked!`,
+      content: `Incredible! You've been consistent for ${days} days straight. You're forming lifelong habits. Keep the momentum going—your future self will thank you. What's your next goal?`,
+      category: 'milestone',
+      priority: 100,
+      related_log_type: null,
+      expires_at: null,
+      metadata: { milestone_days: days }
+    });
+  }
+
+  return newStreak;
 }
 
 export async function logBulkEntries(userId: string, entries: Array<{ log_type: string; value: number; unit: string; notes?: string }>, logDate?: string) {

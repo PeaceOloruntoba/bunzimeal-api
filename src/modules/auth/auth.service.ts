@@ -40,7 +40,12 @@ export async function registerUser(email: string, password: string, firstName: s
   await repo.createUserSubscription(user.id, referralCode || null, affiliateId);
   
   const code = await repo.issueOtp(user.id, 'verify_email', null);
-  await sendOtpEmail(email, code);
+  try {
+    await sendOtpEmail(email, code);
+  } catch (error) {
+    logger.error({ email, err: error }, 'Failed to send verification OTP after registration');
+    throw error;
+  }
   
   logger.info({ email }, 'User registered and OTP sent');
   
@@ -161,10 +166,15 @@ export async function resendOtp(email: string, purpose: 'verify' | 'password_res
   
   const code = await repo.issueOtp(user.id, purpose === 'verify' ? 'verify_email' : 'password_reset', null);
   
-  if (purpose === 'verify') {
-    await sendOtpEmail(email, code);
-  } else {
-    await sendResetEmail(email, code);
+  try {
+    if (purpose === 'verify') {
+      await sendOtpEmail(email, code);
+    } else {
+      await sendResetEmail(email, code);
+    }
+  } catch (error) {
+    logger.error({ email, purpose, err: error }, 'Failed to resend OTP email');
+    throw error;
   }
   
   logger.info({ email, purpose }, `${purpose === 'verify' ? 'Verification' : 'Password reset'} OTP re-sent`);
@@ -176,7 +186,12 @@ export async function createPasswordResetOtp(email: string) {
   if (!user) return;
   
   const code = await repo.issueOtp(user.id, 'password_reset', null);
-  await sendResetEmail(email, code);
+  try {
+    await sendResetEmail(email, code);
+  } catch (error) {
+    logger.error({ email, err: error }, 'Failed to send password reset OTP email');
+    throw error;
+  }
   logger.info({ email }, 'Password reset OTP generated');
 }
 

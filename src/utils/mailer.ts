@@ -1,5 +1,5 @@
 import { createTransport, Transporter } from 'nodemailer';
-import { env, hasResend, hasSmtp, hasEmail } from '../config/env.js';
+import { env, hasSmtp, hasEmail } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
 type ResendRecipient = { email: string; name?: string };
@@ -14,76 +14,79 @@ function parseEmailFrom(from: string): ResendRecipient {
 
 let smtpTransporter: Transporter | null = null;
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 function getSmtpTransporter(): Transporter {
   if (smtpTransporter) return smtpTransporter;
 
-  const port = env.SMTP_PORT ?? 465;
-  const secure = env.SMTP_SECURE ?? port === 465;
+  const port = Number(env.SMTP_PORT) || 587;
+  const secure = port === 465;
 
   smtpTransporter = createTransport({
-    host: env.SMTP_HOST!,
+    host: env.SMTP_HOST || 'smtp.gmail.com',
     port,
     secure,
+    requireTLS: true,
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 30000,
     auth: {
       user: env.SMTP_USER!,
       pass: env.SMTP_PASSWORD!,
     },
   });
 
+  logger.info({ host: env.SMTP_HOST || 'smtp.gmail.com', port, secure }, 'Configured SMTP transport');
+
   return smtpTransporter;
 }
 
 export async function sendMail(to: string, subject: string, html: string) {
-  if (!hasEmail) {
-    logger.warn({ to, subject }, 'No email provider configured (SMTP or Resend); skipping email send');
-    return;
+  const sender = parseEmailFrom(env.EMAIL_FROM || 'BunziMeal <bunzimealpleanner@gmail.com>');
+  const from = sender.name ? `"${sender.name}" <${sender.email}>` : sender.email;
+
+  logger.info({ to, subject, from, hasSmtp }, 'Attempting to send Gmail SMTP email');
+
+  if (!hasEmail && !env.SMTP_USER) {
+    const error = new Error('No email provider configured. Please set up SMTP env variables.');
+    logger.error({ to, subject, from }, 'Email send failed: SMTP credentials missing');
+    throw error;
   }
 
-  const sender = parseEmailFrom(env.EMAIL_FROM || 'BunziMeal <bunzimealpleanner@gmail.com>');
-  const from = sender.name ? `${sender.name} <${sender.email}>` : sender.email;
+  try {
+    const transporter = getSmtpTransporter();
+    logger.info({ to, subject, from, smtpHost: env.SMTP_HOST || 'smtp.gmail.com', smtpPort: Number(env.SMTP_PORT) || 587, smtpSecure: Number(env.SMTP_PORT) === 465 }, 'Sending email via Gmail SMTP');
 
-  if (hasSmtp) {
-    try {
-      const transporter = getSmtpTransporter();
-      const info = await transporter.sendMail({
+    const info = await withTimeout(
+      transporter.sendMail({
         from,
         to,
         subject,
         html,
-      });
-      logger.info({ to, subject, messageId: info.messageId }, 'Email sent via SMTP');
-      return;
-    } catch (e: any) {
-      logger.error({ to, subject, err: e?.message }, 'SMTP email send failed');
-      if (!hasResend) {
-        throw new Error(`SMTP email failed: ${e?.message ?? e}`);
-      }
-      logger.warn({ to, subject }, 'Falling back to Resend REST API');
-    }
+      }),
+      30000,
+      'Gmail SMTP send timed out after 30s'
+    );
+
+    logger.info({ to, subject, from, messageId: info.messageId }, 'Email successfully sent via Gmail SMTP');
+    return;
+  } catch (e: any) {
+    logger.error({ to, subject, from, err: e?.message, stack: e?.stack }, 'Gmail SMTP email send failed');
+    throw new Error(`Gmail SMTP email failed: ${e?.message ?? e}`);
   }
-
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-      authorization: `Bearer ${env.RESEND_API_KEY!}`,
-    },
-    body: JSON.stringify({
-      from,
-      to: [to],
-      subject,
-      html,
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    logger.error({ to, subject, status: response.status, detail }, 'Resend email send failed');
-    throw new Error(`Resend email failed (${response.status})`);
-  }
-
-  logger.info({ to, subject }, 'Email sent via Resend');
 }
 
 export async function sendOtpEmail(to: string, code: string) {
