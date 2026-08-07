@@ -1,4 +1,5 @@
-import { env, hasResend } from '../config/env.js';
+import { createTransport, Transporter } from 'nodemailer';
+import { env, hasResend, hasSmtp, hasEmail } from '../config/env.js';
 import { logger } from '../config/logger.js';
 
 type ResendRecipient = { email: string; name?: string };
@@ -11,13 +12,55 @@ function parseEmailFrom(from: string): ResendRecipient {
   return { email: from.trim() };
 }
 
+let smtpTransporter: Transporter | null = null;
+
+function getSmtpTransporter(): Transporter {
+  if (smtpTransporter) return smtpTransporter;
+
+  const port = env.SMTP_PORT ?? 465;
+  const secure = env.SMTP_SECURE ?? port === 465;
+
+  smtpTransporter = createTransport({
+    host: env.SMTP_HOST!,
+    port,
+    secure,
+    auth: {
+      user: env.SMTP_USER!,
+      pass: env.SMTP_PASSWORD!,
+    },
+  });
+
+  return smtpTransporter;
+}
+
 export async function sendMail(to: string, subject: string, html: string) {
-  if (!hasResend) {
-    logger.warn({ to, subject }, 'RESEND_API_KEY not configured; skipping email send');
+  if (!hasEmail) {
+    logger.warn({ to, subject }, 'No email provider configured (SMTP or Resend); skipping email send');
     return;
   }
 
   const sender = parseEmailFrom(env.EMAIL_FROM || 'BunziMeal <bunzimealpleanner@gmail.com>');
+  const from = sender.name ? `${sender.name} <${sender.email}>` : sender.email;
+
+  if (hasSmtp) {
+    try {
+      const transporter = getSmtpTransporter();
+      const info = await transporter.sendMail({
+        from,
+        to,
+        subject,
+        html,
+      });
+      logger.info({ to, subject, messageId: info.messageId }, 'Email sent via SMTP');
+      return;
+    } catch (e: any) {
+      logger.error({ to, subject, err: e?.message }, 'SMTP email send failed');
+      if (!hasResend) {
+        throw new Error(`SMTP email failed: ${e?.message ?? e}`);
+      }
+      logger.warn({ to, subject }, 'Falling back to Resend REST API');
+    }
+  }
 
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -27,7 +70,7 @@ export async function sendMail(to: string, subject: string, html: string) {
       authorization: `Bearer ${env.RESEND_API_KEY!}`,
     },
     body: JSON.stringify({
-      from: sender.name ? `${sender.name} <${sender.email}>` : sender.email,
+      from,
       to: [to],
       subject,
       html,

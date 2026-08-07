@@ -62,6 +62,10 @@ router.route('/insights')
   .get(requireAuth, controller.getHealthInsights)
   .all(methodNotAllowed);
 
+router.route('/analytics')
+  .get(requireAuth, controller.getAnalytics)
+  .all(methodNotAllowed);
+
 router.route('/daily-tip')
   .get(requireAuth, controller.getDailyTip)
   .all(methodNotAllowed);

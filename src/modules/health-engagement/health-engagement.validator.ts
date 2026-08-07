@@ -57,7 +57,7 @@ export const listCheckinsSchema = z.object({
 });
 
 export const healthSummarySchema = z.object({
-  period: z.enum(['7d', '30d', '90d']).default('7d'),
+  period: z.enum(['1d', 'today', '7d', '30d', '90d']).default('7d'),
 });
 
 export const bulkLogSchema = z.object({

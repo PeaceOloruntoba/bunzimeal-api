@@ -25,17 +25,32 @@ export async function listAvailableGoalKeys() {
 
 export async function checkAndUpdateStreak(userId: string, logDate: string) {
   let streak = await repo.getUserStreak(userId);
-  const today = new Date().toISOString().slice(0, 10);
-  const logDateObj = new Date(logDate);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+  const logDateStr = String(logDate).slice(0, 10);
+  const today = new Date();
+  const tzOffsetMs = today.getTimezoneOffset() * 60 * 1000;
+  const todayStr = new Date(today.getTime() - tzOffsetMs).toISOString().slice(0, 10);
+
+  const logDateNum = parseInt(logDateStr.replace(/-/g, ''), 10);
+  const todayNum = parseInt(todayStr.replace(/-/g, ''), 10);
+  const lastCheckInNum = streak?.last_check_in_date ? parseInt(String(streak.last_check_in_date).slice(0, 10).replace(/-/g, ''), 10) : null;
+
+  function dateDiffDays(a: number, b: number): number {
+    const ay = Math.floor(a / 10000);
+    const am = Math.floor((a % 10000) / 100);
+    const ad = a % 100;
+    const by = Math.floor(b / 10000);
+    const bm = Math.floor((b % 10000) / 100);
+    const bd = b % 100;
+    const da = new Date(ay, am - 1, ad);
+    const db = new Date(by, bm - 1, bd);
+    return Math.round((da.getTime() - db.getTime()) / 86400000);
+  }
 
   if (!streak) {
     streak = await repo.upsertUserStreak(userId, {
       current_streak: 1,
       longest_streak: 1,
-      last_check_in_date: logDate,
+      last_check_in_date: logDateStr,
       total_check_ins: 1,
       streak_milestone_unlocked: []
     });
@@ -43,21 +58,46 @@ export async function checkAndUpdateStreak(userId: string, logDate: string) {
   } else {
     let newCurrentStreak = streak.current_streak;
     let newLastCheckInDate = streak.last_check_in_date;
-    let newTotalCheckIns = streak.total_check_ins + 1;
+    let newTotalCheckIns = streak.total_check_ins;
     let newLongestStreak = streak.longest_streak;
     let newMilestones = [...(streak.streak_milestone_unlocked || [])];
+    let updated = false;
+    let incrementTotal = true;
 
-    if (streak.last_check_in_date === logDate) {
+    if (lastCheckInNum && logDateNum === lastCheckInNum) {
       return streak;
-    } else if (streak.last_check_in_date === yesterdayStr) {
-      newCurrentStreak = streak.current_streak + 1;
-      newLastCheckInDate = logDate;
-      if (newCurrentStreak > newLongestStreak) {
-        newLongestStreak = newCurrentStreak;
+    } else if (lastCheckInNum && logDateNum < lastCheckInNum) {
+      incrementTotal = false;
+    } else if (lastCheckInNum) {
+      const diff = dateDiffDays(logDateNum, lastCheckInNum);
+      if (diff === 1) {
+        newCurrentStreak = streak.current_streak + 1;
+        newLastCheckInDate = logDateStr;
+        if (newCurrentStreak > newLongestStreak) {
+          newLongestStreak = newCurrentStreak;
+        }
+        updated = true;
+      } else if (diff > 1) {
+        newCurrentStreak = 1;
+        newLastCheckInDate = logDateStr;
+        updated = true;
+      } else {
+        incrementTotal = false;
       }
     } else {
       newCurrentStreak = 1;
-      newLastCheckInDate = logDate;
+      newLastCheckInDate = logDateStr;
+      newLongestStreak = Math.max(newLongestStreak, 1);
+      updated = true;
+    }
+
+    if (incrementTotal) {
+      newTotalCheckIns = streak.total_check_ins + 1;
+      updated = true;
+    }
+
+    if (!updated) {
+      return streak;
     }
 
     const milestones = [7, 14, 30, 60, 90, 180, 365];
@@ -103,8 +143,13 @@ export async function checkAndUpdateStreak(userId: string, logDate: string) {
   }
 }
 
+function toLocalDateStr(d: Date = new Date()): string {
+  const tz = d.getTimezoneOffset() * 60 * 1000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
 export async function logBulkEntries(userId: string, entries: Array<{ log_type: string; value: number; unit: string; notes?: string }>, logDate?: string) {
-  const date = logDate || new Date().toISOString().slice(0, 10);
+  const date = logDate || toLocalDateStr();
   const results: HealthLog[] = [];
   for (const e of entries) {
     const log = await repo.createHealthLog(userId, {
@@ -122,7 +167,7 @@ export async function logBulkEntries(userId: string, entries: Array<{ log_type: 
 }
 
 export async function saveCheckin(userId: string, data: Partial<Omit<DailyCheckin, 'id' | 'user_id' | 'created_at' | 'updated_at'>> & { checkin_date?: string }) {
-  const checkinDate = data.checkin_date || new Date().toISOString().slice(0, 10);
+  const checkinDate = data.checkin_date || toLocalDateStr();
   const aiTip = data.ai_tip ?? null;
   const checkin = await repo.upsertCheckin(userId, { ...data, checkin_date: checkinDate, ai_tip: aiTip });
 
@@ -317,9 +362,13 @@ export async function getAiAdvice(userId: string): Promise<string | null> {
 }
 
 export async function seedDailyTipIfEmpty(userId: string) {
-  const today = new Date().toISOString().slice(0, 10);
-  const existing = await repo.listRecommendations(userId, true, 1);
-  const hasTip = existing.some(r => r.recommendation_type === 'daily_tip' && new Date(r.generated_at).toISOString().slice(0, 10) === today);
+  const today = toLocalDateStr();
+  const allRecent = await repo.listRecommendations(userId, false, 20);
+  const hasTip = allRecent.some(r => {
+    if (r.recommendation_type !== 'daily_tip') return false;
+    const genDay = toLocalDateStr(new Date(r.generated_at));
+    return genDay === today;
+  });
   if (hasTip) return;
   const tip = await generateDailyTip(userId);
   if (tip) {

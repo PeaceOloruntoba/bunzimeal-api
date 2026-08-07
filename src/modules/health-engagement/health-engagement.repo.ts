@@ -304,8 +304,9 @@ export async function getHealthSummary(userId: string, daysBack: number = 7) {
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - daysBack + 1);
-  const startStr = startDate.toISOString().slice(0, 10);
-  const endStr = endDate.toISOString().slice(0, 10);
+  const tz = endDate.getTimezoneOffset() * 60 * 1000;
+  const startStr = new Date(startDate.getTime() - tz).toISOString().slice(0, 10);
+  const endStr = new Date(endDate.getTime() - tz).toISOString().slice(0, 10);
 
   const logs = await listHealthLogs(userId, startStr, endStr);
   const checkins = await listCheckins(userId, startStr, endStr);

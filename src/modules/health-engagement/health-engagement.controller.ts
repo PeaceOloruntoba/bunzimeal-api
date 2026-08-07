@@ -95,7 +95,7 @@ export async function createHealthLog(req: AuthedRequest, res: Response, next: N
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
 
     const body = createHealthLogSchema.parse(req.body);
-    const logDate = body.log_date || new Date().toISOString().slice(0, 10);
+    const logDate = body.log_date || localDateStr();
 
     const log = await repo.createHealthLog(userId, {
       ...body,
@@ -227,11 +227,16 @@ export async function listCheckins(req: AuthedRequest, res: Response, next: Next
   }
 }
 
+function localDateStr(d: Date = new Date()): string {
+  const tz = d.getTimezoneOffset() * 60 * 1000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
 export async function getCheckinToday(req: AuthedRequest, res: Response, next: NextFunction) {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateStr();
     const checkin = await repo.getCheckinByDate(userId, today);
     return res.json({ success: true, message: 'Check-in retrieved', data: { checkin } });
   } catch (e) {
@@ -244,7 +249,7 @@ export async function getHealthSummary(req: AuthedRequest, res: Response, next: 
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     const q = healthSummarySchema.parse(req.query);
-    const days = q.period === '7d' ? 7 : q.period === '30d' ? 30 : 90;
+    const days = q.period === '1d' || q.period === 'today' ? 1 : q.period === '7d' ? 7 : q.period === '30d' ? 30 : 90;
     const summary = await repo.getHealthSummary(userId, days);
     return res.json({ success: true, message: 'Summary retrieved', data: { summary } });
   } catch (e) {
@@ -257,9 +262,41 @@ export async function getHealthInsights(req: AuthedRequest, res: Response, next:
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
     const q = healthSummarySchema.parse(req.query);
-    const days = q.period === '7d' ? 7 : q.period === '30d' ? 30 : 90;
+    const days = q.period === '1d' || q.period === 'today' ? 1 : q.period === '7d' ? 7 : q.period === '30d' ? 30 : 90;
     const insights = await service.generateHealthInsights(userId, days);
     return res.json({ success: true, message: 'Insights generated', data: insights });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getAnalytics(req: AuthedRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
+    const q = healthSummarySchema.parse(req.query);
+    const range = q.period === '30d' ? 30 : 7;
+    const [summary, insights, streak, checkins, perks, logs] = await Promise.all([
+      repo.getHealthSummary(userId, range),
+      service.generateHealthInsights(userId, range),
+      repo.getUserStreak(userId),
+      repo.listCheckins(userId),
+      repo.listUserPerks(userId),
+      repo.listHealthLogs(userId),
+    ]);
+    return res.json({
+      success: true,
+      message: 'Analytics retrieved',
+      data: {
+        range: range === 7 ? '7d' : '30d',
+        summary,
+        insights,
+        streak,
+        checkins,
+        perks,
+        logs,
+      }
+    });
   } catch (e) {
     next(e);
   }

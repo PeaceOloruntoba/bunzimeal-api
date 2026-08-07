@@ -35,6 +35,11 @@ const EnvSchema = z
     GOOGLE_API_KEY: z.string().min(1).optional(),
     GEMINI_MODEL: z.string().default('gemini-1.5-flash'),
     RESEND_API_KEY: z.string().min(1).optional(),
+    SMTP_HOST: z.string().min(1).optional(),
+    SMTP_PORT: z.coerce.number().int().positive().optional(),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
+    SMTP_SECURE: z.coerce.boolean().optional(),
     OTP_TTL_MINUTES: z.coerce.number().int().positive().default(10),
     CORS_ORIGIN: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
@@ -49,7 +54,6 @@ const EnvSchema = z
       'DATABASE_URL',
       'PAYSTACK_SECRET_KEY',
       'CLOUDINARY_URL',
-      'RESEND_API_KEY',
     ];
 
     for (const key of required) {
@@ -60,6 +64,15 @@ const EnvSchema = z
           message: `${key} is required in production`,
         });
       }
+    }
+
+    const hasEmail = !!data.RESEND_API_KEY || (!!data.SMTP_HOST && !!data.SMTP_USER && !!data.SMTP_PASSWORD);
+    if (!hasEmail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['RESEND_API_KEY'],
+        message: 'Either RESEND_API_KEY or SMTP_HOST+SMTP_USER+SMTP_PASSWORD is required in production',
+      });
     }
   });
 
@@ -95,6 +108,8 @@ export const hasCloudinary =
   !!env.CLOUDINARY_CLOUD_NAME && !!env.CLOUDINARY_API_KEY && !!env.CLOUDINARY_API_SECRET;
 
 export const hasResend = !!env.RESEND_API_KEY;
+export const hasSmtp = !!env.SMTP_HOST && !!env.SMTP_USER && !!env.SMTP_PASSWORD;
+export const hasEmail = hasResend || hasSmtp;
 export const hasOpenAi = !!env.OPENAI_API_KEY;
 export const hasGoogle = !!env.GOOGLE_API_KEY;
 export const hasGemini = hasGoogle;
