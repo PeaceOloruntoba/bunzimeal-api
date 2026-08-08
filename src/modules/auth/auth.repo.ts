@@ -188,7 +188,7 @@ export async function createProfile(userId: string) {
 export async function createUserSubscription(userId: string, referralCode: string | null = null, affiliateId: string | null = null) {
   const trialDays = 14;
   await query(
-    'INSERT INTO user_subscriptions(user_id, plan, status, trial_end, amount_cents, currency, auto_renew, referral_code, affiliate_id, created_at, updated_at) VALUES($1,$2,$3,NOW() + ($4 * interval \'1 day\'),$5,$6,$7,$8,$9,NOW(),NOW()) ON CONFLICT (user_id) DO NOTHING',
-    [userId, 'monthly', 'trialing', trialDays, 0, 'NGN', true, referralCode, affiliateId]
+    'INSERT INTO user_subscriptions(user_id, plan, status, trial_end, amount_cents, currency, auto_renew, referral_code, affiliate_id, created_at, updated_at) VALUES($1,$2::subscription_plan,$3::subscription_status,NOW() + ($4 * interval \'1 day\'),$5,$6,false,$8,$9,NOW(),NOW()) ON CONFLICT (user_id) DO NOTHING',
+    [userId, 'monthly', 'trialing', trialDays, 0, 'NGN', false, referralCode, affiliateId]
   );
 }

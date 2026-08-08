@@ -69,3 +69,17 @@ export async function updatePushToken(userId: string, id: string, data: {
 export async function deletePushToken(userId: string, id: string) {
   await query('UPDATE device_push_tokens SET is_active=false WHERE id=$1 AND user_id=$2', [id, userId]);
 }
+
+export async function createInAppNotification(userId: string, type: string, title: string, body: string, payload?: any) {
+  const { rows } = await query(
+    `INSERT INTO notifications(user_id, type, title, body, payload)
+     VALUES($1, $2, $3, $4, $5) RETURNING *`,
+    [userId, type, title, body, payload ?? null]
+  );
+  return rows[0];
+}
+
+export async function listInAppNotifications(userId: string) {
+  const { rows } = await query('SELECT * FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100', [userId]);
+  return rows;
+}

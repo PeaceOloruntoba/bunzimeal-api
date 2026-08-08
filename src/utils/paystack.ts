@@ -14,7 +14,8 @@ export class PaystackService {
     email: string,
     amount: number,
     reference: string,
-    metadata: Record<string, unknown> = {}
+    metadata: Record<string, unknown> = {},
+    currency?: string
   ) {
     const response = await axios.post(
       `${env.PAYSTACK_BASE_URL}/transaction/initialize`,
@@ -23,6 +24,7 @@ export class PaystackService {
         amount: Math.round(amount * 100),
         reference,
         metadata,
+        ...(currency ? { currency } : {}),
         callback_url: env.PAYSTACK_CALLBACK_URL,
       },
       { headers: this.getHeaders() }

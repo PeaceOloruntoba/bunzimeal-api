@@ -70,7 +70,7 @@ export async function markApplied(userId: string) {
       end.setMonth(end.getMonth() + toAward);
       await query(
         `INSERT INTO user_subscriptions(user_id, plan, status, current_period_start, current_period_end, amount_cents, currency, auto_renew, created_at, updated_at)
-         VALUES($1,'monthly','active',$2,$3,0,'NGN',true,NOW(),NOW())`,
+         VALUES($1,'monthly'::subscription_plan,'active'::subscription_status,$2,$3,0,'NGN',false,NOW(),NOW())`,
         [aff.owner_user_id, now.toISOString(), end.toISOString()]
       );
     }

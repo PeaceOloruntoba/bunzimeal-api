@@ -1,7 +1,9 @@
 import type { Response, NextFunction } from 'express';
 import type { AuthedRequest } from '../../middlewares/auth.middleware.js';
 import * as repo from './notifications.repo.js';
+import * as service from './notifications.service.js';
 import { registerPushTokenSchema, updatePushTokenSchema } from './notifications.validator.js';
+
 
 export async function getPushTokens(req: AuthedRequest, res: Response, next: NextFunction) {
   try {
@@ -13,6 +15,14 @@ export async function getPushTokens(req: AuthedRequest, res: Response, next: Nex
   } catch (e) {
     next(e);
   }
+}
+
+export async function getNotifications(req: AuthedRequest, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized', errorMessage: 'Please sign in' });
+    return res.json({ success: true, data: { notifications: await service.listInAppNotifications(userId) } });
+  } catch (e) { next(e); }
 }
 
 export async function registerPushToken(req: AuthedRequest, res: Response, next: NextFunction) {

@@ -5,6 +5,7 @@ import { sendMail } from '../../utils/mailer.js';
 import * as billingRepo from './billing.repo.js';
 import * as usersRepo from '../users/users.repo.js';
 import * as referralsService from '../referrals/referrals.service.js';
+import * as notificationsService from '../notifications/notifications.service.js';
 
 export type Plan = 'monthly' | 'quarterly' | 'biannual' | 'annual';
 
@@ -58,18 +59,18 @@ export async function listPublicPlans(countryId: number) {
 }
 
 export async function getStatus(userId: string) {
-  const sub = await billingRepo.getUserSubscription(userId);
+  let sub = await billingRepo.getUserSubscription(userId);
   const now = new Date();
   let is_active = false;
   let next_billing_date: string | null = null;
   
   if (sub) {
-    if (sub.status === 'active' && sub.current_period_end && new Date(sub.current_period_end) > now) {
+    const end = sub.current_period_end || sub.trial_end;
+    if ((sub.status === 'active' || sub.status === 'trialing') && end && new Date(end) > now) {
       is_active = true;
-      next_billing_date = sub.current_period_end;
-    } else if (sub.status === 'active' && sub.current_period_end && new Date(sub.current_period_end) <= now) {
-      // Mark as expired if period ended
-      await billingRepo.createOrUpdateUserSubscription(userId, { status: 'expired' });
+      next_billing_date = end;
+    } else if ((sub.status === 'active' || sub.status === 'trialing') && end && new Date(end) <= now) {
+      sub = await billingRepo.markSubscriptionExpired(userId) || { ...sub, status: 'expired', auto_renew: false };
     }
   }
   return { is_active, next_billing_date, subscription: sub };
@@ -112,7 +113,7 @@ export async function handlePaystackWebhook(event: any) {
       current_period_end: newEnd.toISOString(),
       amount_cents: payment.amount_cents,
       currency: payment.currency,
-      auto_renew: false, // No auto-renew
+      auto_renew: false,
       referral_code: (payment.metadata as any)?.referral_code,
     });
     
@@ -142,31 +143,25 @@ export async function handlePaystackWebhook(event: any) {
 // New function to check and send 7-day expiry notifications
 export async function sendExpiryNotifications() {
   const now = new Date();
-  const sevenDaysFromNow = new Date(now);
-  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-  
-  // Get subscriptions expiring in 7 days (with status 'active' and not already notified)
-  // For now, we'll just log - we need to track if notifications were already sent
   logger.info('Checking for expiring subscriptions...');
-  
-  // Let's implement this with a simple check
   const users = await usersRepo.listAllUsers();
   for (const user of users) {
     try {
       const sub = await billingRepo.getUserSubscription(user.id);
-      if (!sub || sub.status !== 'active' || !sub.current_period_end) continue;
+      if (!sub || (sub.status !== 'active' && sub.status !== 'trialing') || !sub.current_period_end) continue;
       
       const endDate = new Date(sub.current_period_end);
-      // Check if end date is exactly 7 days from now (ignore time)
-      const isSevenDaysBefore = 
-        endDate.getFullYear() === sevenDaysFromNow.getFullYear() &&
-        endDate.getMonth() === sevenDaysFromNow.getMonth() &&
-        endDate.getDate() === sevenDaysFromNow.getDate();
-      
-      if (isSevenDaysBefore && user.email) {
-        logger.info(`Sending expiry notification to ${user.email}`);
-        await sendMail(user.email, 'Your subscription is expiring soon', 
-          `<p>Your subscription is set to expire on ${endDate.toDateString()}. Renew now to continue enjoying premium features!</p>`);
+      const daysRemaining = Math.ceil((endDate.getTime() - now.getTime()) / 86400000);
+      const milestones = sub.plan === 'monthly' ? [7] : sub.plan === 'quarterly' ? [30, 7] : sub.plan === 'biannual' ? [60, 30, 7] : [90, 60, 30, 7];
+      for (const milestone of milestones) {
+        if (daysRemaining < 0 || daysRemaining > milestone || !(await billingRepo.claimExpiryNotification(sub.id, milestone))) continue;
+        const title = `Your ${sub.plan} subscription expires in ${milestone} days`;
+        const body = `Your BunziMeal subscription expires on ${endDate.toDateString()}. Renew manually before then to keep premium access.`;
+        await notificationsService.sendNotification(user.id, title, body, { type: 'subscription_expiry', subscription_id: sub.id, milestone_days: milestone });
+        if (user.email) {
+          try { await sendMail(user.email, title, `<p>${body}</p>`); }
+          catch (e) { logger.error({ userId: user.id, email: user.email, milestone }, 'Failed to send expiry email'); }
+        }
       }
     } catch (e) {
       logger.error({ userId: user.id }, 'Failed to check/send expiry notification');

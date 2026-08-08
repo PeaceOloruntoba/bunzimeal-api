@@ -18,7 +18,7 @@ export interface UserSubscription {
   id: string;
   user_id: string;
   plan: 'monthly' | 'quarterly' | 'biannual' | 'annual';
-  status: 'active' | 'trialing' | 'cancelled' | 'expired';
+  status: 'none' | 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired';
   trial_end: string | null;
   current_period_start: string | null;
   current_period_end: string | null;
@@ -81,10 +81,23 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
   return rows[0] || null;
 }
 
+export async function markSubscriptionExpired(userId: string): Promise<UserSubscription | null> {
+  const { rows } = await query<UserSubscription>(
+    `UPDATE user_subscriptions
+     SET status = 'expired'::subscription_status, auto_renew = false, updated_at = NOW()
+     WHERE user_id = $1 AND status IN ('active'::subscription_status, 'trialing'::subscription_status)
+       AND COALESCE(current_period_end, trial_end) IS NOT NULL
+       AND COALESCE(current_period_end, trial_end) <= NOW()
+     RETURNING *`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
 export async function createOrUpdateUserSubscription(userId: string, data: Partial<Omit<UserSubscription, 'id' | 'user_id' | 'created_at' | 'updated_at'>>) {
   const { rows } = await query<UserSubscription>(
     `INSERT INTO user_subscriptions(user_id, plan, status, trial_end, current_period_start, current_period_end, amount_cents, currency, auto_renew, referral_code, affiliate_id, created_at, updated_at)
-     VALUES($1,COALESCE($2,'monthly'),COALESCE($3,'expired'),$4,$5,$6,COALESCE($7,0),COALESCE($8,'USD'),COALESCE($9,false),$10,$11,NOW(),NOW())
+    VALUES($1,COALESCE($2,'monthly')::subscription_plan,COALESCE($3,'expired')::subscription_status,$4,$5,$6,COALESCE($7,0),COALESCE($8,'USD'),false,$10,$11,NOW(),NOW())
      ON CONFLICT (user_id) DO UPDATE SET
        plan = CASE WHEN $2 IS NOT NULL THEN EXCLUDED.plan ELSE user_subscriptions.plan END,
        status = CASE WHEN $3 IS NOT NULL THEN EXCLUDED.status ELSE user_subscriptions.status END,
@@ -93,7 +106,7 @@ export async function createOrUpdateUserSubscription(userId: string, data: Parti
        current_period_end = CASE WHEN $6 IS NOT NULL THEN EXCLUDED.current_period_end ELSE user_subscriptions.current_period_end END,
        amount_cents = CASE WHEN $7 IS NOT NULL THEN EXCLUDED.amount_cents ELSE user_subscriptions.amount_cents END,
        currency = CASE WHEN $8 IS NOT NULL THEN EXCLUDED.currency ELSE user_subscriptions.currency END,
-       auto_renew = CASE WHEN $9 IS NOT NULL THEN EXCLUDED.auto_renew ELSE user_subscriptions.auto_renew END,
+      auto_renew = false,
        referral_code = CASE WHEN $10 IS NOT NULL THEN EXCLUDED.referral_code ELSE user_subscriptions.referral_code END,
        affiliate_id = CASE WHEN $11 IS NOT NULL THEN EXCLUDED.affiliate_id ELSE user_subscriptions.affiliate_id END,
        updated_at = NOW()
@@ -101,6 +114,16 @@ export async function createOrUpdateUserSubscription(userId: string, data: Parti
     [userId, data.plan, data.status, data.trial_end, data.current_period_start, data.current_period_end, data.amount_cents, data.currency, data.auto_renew, data.referral_code, data.affiliate_id]
   );
   return rows[0];
+}
+
+export async function claimExpiryNotification(subscriptionId: string, milestoneDays: number): Promise<boolean> {
+  const { rows } = await query(
+    `INSERT INTO subscription_expiry_notifications(subscription_id, milestone_days)
+     VALUES($1, $2) ON CONFLICT (subscription_id, milestone_days) DO NOTHING
+     RETURNING id`,
+    [subscriptionId, milestoneDays]
+  );
+  return rows.length === 1;
 }
 
 export async function createPayment(userId: string, data: { amount_cents: number; currency: string; metadata?: any }) {

@@ -198,6 +198,7 @@ export async function checkout(req: AuthedRequest, res: Response, next: NextFunc
       paystackAmount / 100, // Paystack expects major units
       reference,
       { user_id: userId, plan, payment_id: payment.id, original_currency: bp.currency, original_amount: amountCents / 100, conversion: conversionMeta, referral_code: referralCode || null, referral: appliedReferral, callback_url_override: callbackOverrideRaw ? callback : undefined }
+      , paystackCurrency
     );
 
     await billingRepo.updatePayment(payment.id, {

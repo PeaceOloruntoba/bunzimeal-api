@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import * as controller from './nutrition.controller.js';
-import { requireAuth } from '../../middlewares/auth.middleware.js';
+import { requireAuth, requirePremium } from '../../middlewares/auth.middleware.js';
 import { methodNotAllowed } from '../../middlewares/methodNotAllowed.middleware.js';
 
 const router = Router();
@@ -24,7 +24,7 @@ router.route('/recipes')
   .all(methodNotAllowed);
 
 router.route('/recipes/:id')
-  .get(controller.getRecipe)
+  .get(requireAuth, requirePremium, controller.getRecipe)
   .put(controller.updateRecipe)
   .delete(controller.deleteRecipe)
   .all(methodNotAllowed);
