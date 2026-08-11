@@ -1,5 +1,5 @@
-import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } from '@google/generative-ai';
-import { env, hasGemini } from '../config/env.js';
+import { GoogleGenAI } from "@google/genai";
+import { env, hasGemini } from "../config/env.js";
 
 export { hasGemini };
 
@@ -9,59 +9,58 @@ export type GeminiUsage = {
   totalTokens?: number;
 };
 
-const DEFAULT_MODEL = env.GEMINI_MODEL;
+const DEFAULT_MODEL = env.GEMINI_MODEL; // e.g., 'gemini-2.5-flash'
 
+// The new SDK simplifies safety settings using flat configuration objects
 const SAFETY_SETTINGS = [
   {
-    category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    category: "HARM_CATEGORY_HARASSMENT",
+    threshold: "BLOCK_MEDIUM_AND_ABOVE",
   },
   {
-    category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    category: "HARM_CATEGORY_HATE_SPEECH",
+    threshold: "BLOCK_MEDIUM_AND_ABOVE",
   },
   {
-    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    threshold: "BLOCK_MEDIUM_AND_ABOVE",
   },
   {
-    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+    threshold: "BLOCK_MEDIUM_AND_ABOVE",
   },
 ];
 
 function buildPrompt(prompt: string, contextParts: string[]) {
-  const parts: string[] = [];
   if (contextParts.length) {
-    parts.push(contextParts.join('\n\n'));
+    return `${contextParts.join("\n\n")}\n\n---\n\n${prompt}`;
   }
-  parts.push(prompt);
-  return parts.join('\n\n---\n\n');
+  return prompt;
 }
 
 function getClient() {
-  if (!hasGemini) throw new Error('GOOGLE_API_KEY is not configured');
-  return new GoogleGenerativeAI(env.GOOGLE_API_KEY || '');
+  if (!hasGemini) throw new Error("GOOGLE_API_KEY is not configured");
+  // The new SDK initializes via new GoogleGenAI()
+  return new GoogleGenAI({ apiKey: env.GOOGLE_API_KEY || "" });
 }
 
 export async function geminiGenerate(
   prompt: string,
   contextParts: string[] = [],
-  modelName: string = DEFAULT_MODEL
+  modelName: string = DEFAULT_MODEL,
 ): Promise<{ text: string; usage: GeminiUsage }> {
-  const client = getClient();
-  const model = client.getGenerativeModel({
+  const ai = getClient();
+  const fullPrompt = buildPrompt(prompt, contextParts);
+
+  // Calls are unified under ai.models.generateContent
+  const response = await ai.models.generateContent({
     model: modelName,
-    safetySettings: SAFETY_SETTINGS,
-    generationConfig: {
+    contents: fullPrompt,
+    config: {
       temperature: 0.7,
+      safetySettings: SAFETY_SETTINGS as any,
     },
   });
-
-  const fullPrompt = buildPrompt(prompt, contextParts);
-  const result = await model.generateContent(fullPrompt);
-  const response = result.response;
-  const text = response.text();
 
   const usageMetadata = response.usageMetadata;
   const usage: GeminiUsage = {
@@ -70,31 +69,36 @@ export async function geminiGenerate(
     totalTokens: usageMetadata?.totalTokenCount,
   };
 
-  return { text: text || 'I could not generate a response at the moment.', usage };
+  return {
+    text: response.text || "I could not generate a response at the moment.",
+    usage,
+  };
 }
 
 export async function geminiStream(
   prompt: string,
   contextParts: string[] = [],
   onText: (chunkText: string) => void,
-  modelName: string = DEFAULT_MODEL
+  modelName: string = DEFAULT_MODEL,
 ): Promise<{ text: string; usage: GeminiUsage }> {
-  const client = getClient();
-  const model = client.getGenerativeModel({
+  const ai = getClient();
+  const fullPrompt = buildPrompt(prompt, contextParts);
+
+  // Streaming calls are unified under ai.models.generateContentStream
+  const responseStream = await ai.models.generateContentStream({
     model: modelName,
-    safetySettings: SAFETY_SETTINGS,
-    generationConfig: {
+    contents: fullPrompt,
+    config: {
       temperature: 0.7,
+      safetySettings: SAFETY_SETTINGS as any,
     },
   });
 
-  const fullPrompt = buildPrompt(prompt, contextParts);
-  const result = await model.generateContentStream(fullPrompt);
-
-  let full = '';
+  let full = "";
   let usageMetadata: any = null;
-  for await (const chunk of result.stream) {
-    const chunkText = chunk.text();
+
+  for await (const chunk of responseStream) {
+    const chunkText = chunk.text;
     if (chunkText) {
       full += chunkText;
       onText(chunkText);
@@ -102,11 +106,6 @@ export async function geminiStream(
     if (chunk.usageMetadata) {
       usageMetadata = chunk.usageMetadata;
     }
-  }
-
-  const response = await result.response;
-  if (response.usageMetadata) {
-    usageMetadata = response.usageMetadata;
   }
 
   const usage: GeminiUsage = {
