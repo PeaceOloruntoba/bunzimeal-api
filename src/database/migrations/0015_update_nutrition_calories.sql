@@ -1,0 +1,3 @@
+ALTER TABLE nutrition 
+  ALTER COLUMN calories TYPE NUMERIC(8, 2) USING calories::NUMERIC(8, 2),
+  ALTER COLUMN calories SET DEFAULT 0.00;

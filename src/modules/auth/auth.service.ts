@@ -86,7 +86,7 @@ export async function loginUser(email: string, password: string, options?: { use
   // Check if user is migrated (migration = true)
   if (user.migration) {
     // For migrated users, trigger OTP instead of password verification
-    const code = await repo.issueOtp(user.id, 'migration_verify', options?.ipAddress || null);
+    const code = await repo.issueOtp(user.id, 'login', options?.ipAddress || null);
     try {
       await sendMigrationOtpEmail(email, code);
       logger.info({ email }, 'Migration OTP sent for migrated user');

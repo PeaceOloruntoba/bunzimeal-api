@@ -14,7 +14,7 @@ async function migrateRecipes() {
   try {
     console.log('Starting migration...');
 
-    // Fetch all old recipes and nutrition in batch
+    // 1. Fetch source data from old database
     const { rows: oldRecipes } = await oldPool.query(`
       SELECT id, name, category, created_at, deleted_at, image_url, description, details, updated_at
       FROM recipes
@@ -25,11 +25,28 @@ async function migrateRecipes() {
       FROM nutrition
     `);
 
-    console.log(`Loaded ${oldRecipes.length} recipes and ${oldNutrition.length} nutrition rows from source.`);
+    // 2. Fetch existing data from target database into memory
+    const { rows: existingTargetRecipes } = await currentClient.query(`
+      SELECT id, name FROM recipes
+    `);
 
-    // Group nutrition by old recipe_id for faster lookup
-    const nutritionMap = new Map(oldNutrition.map(n => [n.recipe_id, n]));
-    const recipeIdMap = new Map();
+    const { rows: existingTargetNutrition } = await currentClient.query(`
+      SELECT recipe_id FROM nutrition
+    `);
+
+    // Build lookup structures for fast checking without N+1 queries
+    const targetRecipeByName = new Map(
+      existingTargetRecipes.map((r) => [r.name.toLowerCase().trim(), r.id])
+    );
+    const targetNutritionByRecipeId = new Set(
+      existingTargetNutrition.map((n) => n.recipe_id)
+    );
+    const nutritionMap = new Map(oldNutrition.map((n) => [n.recipe_id, n]));
+    const oldToNewRecipeIdMap = new Map();
+
+    console.log(
+      `Loaded ${oldRecipes.length} old recipes and ${existingTargetRecipes.length} existing target recipes.`
+    );
 
     await currentClient.query('BEGIN');
 
@@ -37,43 +54,45 @@ async function migrateRecipes() {
     let skippedRecipes = 0;
     let migratedNutrition = 0;
 
+    // 3. Process recipes and nutrition in transaction
     for (const oldRecipe of oldRecipes) {
-      // Upsert recipe by name (Requires a UNIQUE constraint on recipes.name)
-      const res = await currentClient.query(
-        `INSERT INTO recipes (name, description, instructions, category, image_url, servings, difficulty, created_at, updated_at, deleted_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (name) DO UPDATE SET updated_at = EXCLUDED.updated_at
-         RETURNING id, (xmin = 0) AS is_inserted`,
-        [
-          oldRecipe.name,
-          oldRecipe.description || null,
-          oldRecipe.details || null,
-          oldRecipe.category || 'general',
-          oldRecipe.image_url || null,
-          1,
-          'medium',
-          oldRecipe.created_at,
-          oldRecipe.updated_at,
-          oldRecipe.deleted_at || null,
-        ]
-      );
+      const normalizedName = oldRecipe.name.toLowerCase().trim();
+      let newRecipeId = targetRecipeByName.get(normalizedName);
 
-      const newRecipeId = res.rows[0].id;
-      recipeIdMap.set(oldRecipe.id, newRecipeId);
-
-      if (res.rows[0].is_inserted) {
-        migratedRecipes++;
-      } else {
+      if (newRecipeId) {
         skippedRecipes++;
+      } else {
+        const insertRecipeRes = await currentClient.query(
+          `INSERT INTO recipes (name, description, instructions, category, image_url, servings, difficulty, created_at, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING id`,
+          [
+            oldRecipe.name,
+            oldRecipe.description || null,
+            oldRecipe.details || null,
+            oldRecipe.category || 'general',
+            oldRecipe.image_url || null,
+            1,
+            'medium',
+            oldRecipe.created_at,
+            oldRecipe.updated_at,
+            oldRecipe.deleted_at || null,
+          ]
+        );
+
+        newRecipeId = insertRecipeRes.rows[0].id;
+        targetRecipeByName.set(normalizedName, newRecipeId);
+        migratedRecipes++;
       }
 
-      // Migrate corresponding nutrition data
+      oldToNewRecipeIdMap.set(oldRecipe.id, newRecipeId);
+
+      // Process matching nutrition entry
       const nut = nutritionMap.get(oldRecipe.id);
-      if (nut) {
+      if (nut && !targetNutritionByRecipeId.has(newRecipeId)) {
         await currentClient.query(
           `INSERT INTO nutrition (recipe_id, calories, protein_grams, carbs_grams, fat_grams, created_at, updated_at, deleted_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (recipe_id) DO NOTHING`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             newRecipeId,
             nut.calories || 0,
@@ -85,12 +104,18 @@ async function migrateRecipes() {
             nut.deleted_at || null,
           ]
         );
+
+        targetNutritionByRecipeId.add(newRecipeId);
         migratedNutrition++;
       }
     }
 
     await currentClient.query('COMMIT');
-    console.log(`Migration Complete! Recipes: ${migratedRecipes} inserted, ${skippedRecipes} skipped. Nutrition: ${migratedNutrition} processed.`);
+
+    console.log(`Migration Complete!
+    - Recipes Inserted: ${migratedRecipes}
+    - Recipes Skipped: ${skippedRecipes}
+    - Nutrition Inserted: ${migratedNutrition}`);
   } catch (error) {
     await currentClient.query('ROLLBACK');
     console.error('Migration failed, rolled back changes:', error);
