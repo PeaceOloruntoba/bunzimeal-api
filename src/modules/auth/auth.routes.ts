@@ -41,4 +41,12 @@ router.route('/reset-password')
   .post(controller.resetPassword)
   .all(methodNotAllowed);
 
+router.route('/migration-verify')
+  .post(controller.migrationVerify)
+  .all(methodNotAllowed);
+
+router.route('/migration-password')
+  .post(controller.migrationPassword)
+  .all(methodNotAllowed);
+
 export default router;

@@ -56,8 +56,8 @@ export async function createUser(email: string, passwordHash: string, firstName:
 }
 
 export async function getUserByEmail(email: string) {
-  const { rows } = await query<{ id: string; password_hash: string; verified_at: string | null; token_version: number; first_name: string | null; last_name: string | null; role: 'user' | 'admin'; country_id: number | null }>(
-    'SELECT id, password_hash, verified_at, token_version, first_name, last_name, role, country_id FROM users WHERE email=$1',
+  const { rows } = await query<{ id: string; password_hash: string; verified_at: string | null; token_version: number; first_name: string | null; last_name: string | null; role: 'user' | 'admin'; country_id: number | null; migration: boolean }>(
+    'SELECT id, password_hash, verified_at, token_version, first_name, last_name, role, country_id, migration FROM users WHERE email=$1',
     [email]
   );
   return rows[0];
@@ -79,6 +79,10 @@ export async function updateUserPassword(id: string, passwordHash: string) {
   await query('UPDATE users SET password_hash=$1 WHERE id=$2', [passwordHash, id]);
 }
 
+export async function updateUserMigrationFlag(id: string, migration: boolean) {
+  await query('UPDATE users SET migration=$1 WHERE id=$2', [migration, id]);
+}
+
 export async function incrementTokenVersion(id: string) {
   await query('UPDATE users SET token_version = token_version + 1 WHERE id=$1', [id]);
 }
@@ -89,12 +93,12 @@ export async function createRefreshToken(userId: string, options?: { userAgent?:
   const rawToken = `${selector}.${validator}`;
   const hash = await bcrypt.hash(validator, 12);
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  
+
   await query(
     'INSERT INTO refresh_tokens(selector, token_hash, user_id, expires_at, user_agent, ip_address, created_at, last_used_at) VALUES($1,$2,$3,$4,$5,$6,NOW(),NOW())',
     [selector, hash, userId, expiresAt, options?.userAgent || null, options?.ipAddress || null]
   );
-  
+
   return { token: rawToken, expiresAt };
 }
 
@@ -118,12 +122,12 @@ export async function issueOtp(userId: string | null, purpose: string, ipAddress
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   const hash = await bcrypt.hash(code, 12);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-  
+
   await query(
     'INSERT INTO otp_codes(user_id, otp_hash, purpose, expires_at, ip_address) VALUES($1,$2,$3,$4,$5)',
     [userId, hash, purpose, expiresAt, ipAddress]
   );
-  
+
   return code;
 }
 

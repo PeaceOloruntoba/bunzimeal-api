@@ -37,3 +37,13 @@ export const resendOtpSchema = z.object({
   email: z.string().email(),
   purpose: z.enum(['verify', 'password_reset']),
 });
+
+export const migrationVerifySchema = z.object({
+  email: z.string().email(),
+  code: z.string().length(6),
+});
+
+export const migrationPasswordSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
