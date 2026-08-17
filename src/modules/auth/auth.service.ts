@@ -238,7 +238,7 @@ export async function verifyMigrationOtp(email: string, code: string): Promise<M
   const user = await repo.getUserByEmail(email);
   if (!user) return { notFound: true };
 
-  const otps = await repo.getUnusedOtpsForUser(user.id, 'migration_verify');
+  const otps = await repo.getUnusedOtpsForUser(user.id, 'login');
   for (const otp of otps) {
     const ok = await bcrypt.compare(code, otp.otp_hash);
     if (ok) {
