@@ -18,7 +18,7 @@ export interface Recipe {
   category: string;
   image_url: string | null;
   description: string | null;
-  details: string | null;
+  instructions: string | null;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -108,7 +108,7 @@ export async function softDeleteNutrition(id: number) {
 // Recipes
 export async function listRecipes() {
   const { rows } = await query<Recipe & { calories: number | null }>(
-    `SELECT r.id, r.name, r.category, r.image_url, r.description, r.details,
+    `SELECT r.id, r.name, r.category, r.image_url, r.description, r.instructions,
             COALESCE(n.calories, 0) AS calories
      FROM recipes r
      LEFT JOIN nutrition n ON n.recipe_id = r.id AND n.deleted_at IS NULL
@@ -120,7 +120,7 @@ export async function listRecipes() {
 
 export async function getRecipe(id: number) {
   const { rows } = await query<Recipe & { full_nutrition: any }>(
-    `SELECT r.id, r.name, r.category, r.image_url, r.description, r.details,
+    `SELECT r.id, r.name, r.category, r.image_url, r.description, r.instructions,
             row_to_json(n) AS full_nutrition
      FROM recipes r
      LEFT JOIN nutrition n ON r.id = n.recipe_id
@@ -135,7 +135,7 @@ export async function createRecipe(data: {
   category: string;
   image_url?: string | null;
   description?: string | null;
-  details?: string | null;
+  instructions?: string | null;
   nutrition?: { calories?: number; protein_grams?: number; carbs_grams?: number; fat_grams?: number } | null;
 }) {
   await query('BEGIN');
@@ -157,8 +157,8 @@ export async function createRecipe(data: {
     const nextId = nextIdRes.rows[0].next_id;
 
     const { rows } = await query<{ id: number; name: string }>(
-      'INSERT INTO recipes(id, name, category, image_url, description, details) VALUES($1,$2,$3,$4,$5,$6) RETURNING id, name',
-      [nextId, data.name, data.category, data.image_url ?? null, data.description ?? null, data.details ?? null]
+      'INSERT INTO recipes(id, name, category, image_url, description, instructions) VALUES($1,$2,$3,$4,$5,$6) RETURNING id, name',
+      [nextId, data.name, data.category, data.image_url ?? null, data.description ?? null, data.instructions ?? null]
     );
     const rec = rows[0];
     const n = data.nutrition || null;
@@ -186,7 +186,7 @@ export async function updateRecipe(id: number, data: Partial<Omit<Recipe, 'id' |
   if (data.category !== undefined) { fields.push(`category=$${i++}`); params.push(data.category); }
   if (data.image_url !== undefined) { fields.push(`image_url=$${i++}`); params.push(data.image_url); }
   if (data.description !== undefined) { fields.push(`description=$${i++}`); params.push(data.description); }
-  if (data.details !== undefined) { fields.push(`details=$${i++}`); params.push(data.details); }
+  if (data.instructions !== undefined) { fields.push(`instructions=$${i++}`); params.push(data.instructions); }
 
   if (!fields.length) return { updated: false } as const;
   params.push(id);
